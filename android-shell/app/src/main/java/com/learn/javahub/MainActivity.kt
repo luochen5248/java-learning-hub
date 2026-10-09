@@ -16,11 +16,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.updatePadding
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 
@@ -53,9 +50,11 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        // 1) 边到边 + 状态栏图标明暗：内容延伸到状态栏下方；
-        //    图标明暗由 applyBarAppearance() 按当前主题统一设置（浅色底用深色图标，反之亦然）
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // 1) 安全区交给系统托管：WebView 落在状态栏 / 导航栏内侧，页面标题不会被状态栏遮住。
+        //    此前用「边到边（false）+ 手动补 inset」在 WebView 上兜不住：
+        //    WebView 里 env(safe-area-inset-top) 恒为 0，而 insets 监听器又容易错过分发时机，
+        //    两层同时失效就会顶到状态栏。改成系统托管后，刘海屏 / 手势导航条也一并由系统适配。
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         applyBarAppearance()
 
         webView = WebView(this).apply {
@@ -119,19 +118,8 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(webView)
 
-        // 2) 安全区适配：状态栏 / 导航栏 / 输入法的 inset 补到 WebView 上，
-        //    避免刘海机与手势导航条遮住页面顶部和底部
-        ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            view.updatePadding(
-                left = bars.left,
-                top = bars.top,
-                right = bars.right,
-                bottom = bars.bottom + ime.bottom
-            )
-            insets
-        }
+        // 2) 键盘弹出时由系统 resize（AndroidManifest 已声明 windowSoftInputMode="adjustResize"），
+        //    不再手动补 inset —— 系统托管安全区后再补一次会叠成双重留白
 
         // 3) 返回键优先交给页面回退历史，退无可退时才关闭 App
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -146,6 +134,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         // 4) 旋转 / 切深色模式不重建页面：configChanges 已在 AndroidManifest 中声明
+        //    （uiMode 变化时由 onConfigurationChanged 重新应用状态栏明暗与底色）
         if (savedInstanceState == null) {
             loadHome()
         } else {
@@ -159,12 +148,18 @@ class MainActivity : AppCompatActivity() {
      * @param darkOverride 传 null 表示按当前系统深浅色判断（首帧、系统切换时用）；
      *                     Web 层回调时会传入它自己实际生效的主题，覆盖「App 内选了深色、系统却是浅色」的不一致。
      */
+    @Suppress("DEPRECATION")
     private fun applyBarAppearance(darkOverride: Boolean? = null) {
         val dark = darkOverride ?: isSystemDark()
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = !dark       // 浅色底才用深色图标
             isAppearanceLightNavigationBars = !dark
         }
+        // 状态栏 / 导航栏底色跟页面主题走：站内选的主题可能与系统深浅色不一致，
+        // 若只改图标明暗，状态栏会留下一条与页面不同的色带
+        val bg = if (dark) COLOR_BG_DARK else COLOR_BG_LIGHT
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
     }
 
     /** 当前系统是否处于深色模式 */
@@ -242,6 +237,11 @@ class MainActivity : AppCompatActivity() {
 
         // Web 层通过 window.JavaHubTheme.setDark(isDark) 回调原生，让状态栏图标跟随页面实际主题
         private const val JS_THEME_IFACE = "JavaHubTheme"
+
+        // 与 Web 端 CSS 变量的底色取同一个值（深色 :root / 浅色 [data-theme='light']），
+        // 保证状态栏底色严格跟随页面主题，而不是只看系统深浅色
+        private const val COLOR_BG_DARK = 0xFF0B1220.toInt()
+        private const val COLOR_BG_LIGHT = 0xFFF7F9FD.toInt()
 
         private const val MISSING_ASSETS_HTML = """
             <!DOCTYPE html>

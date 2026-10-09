@@ -205,11 +205,11 @@ adb install -r app\build\outputs\apk\release\app-release.apk
 | WebChromeClient | `webChromeClient = WebChromeClient()`，保证 console / alert 正常 | `onCreate` |
 | 返回键回退 history | `canGoBack()` → `goBack()`，否则 `finish()` | `onBackPressedDispatcher` 回调 |
 | 深浅色跟随系统 | `AppCompatDelegate.setDefaultNightMode(MODE_NIGHT_FOLLOW_SYSTEM)` + `values-night` 资源 | `onCreate` |
-| 状态栏图标明暗 | `applyBarAppearance()`：浅色底用深色图标，深色底用浅色图标 | `onCreate` / `onConfigurationChanged` |
+| 状态栏配色 | `applyBarAppearance()`：底色与页面主题一致，浅色底配深色图标、深色底配浅色图标 | `onCreate` / `onConfigurationChanged` |
 | 系统切换主题不重建 | 重新应用状态栏配色与 WebView 底色 | `onConfigurationChanged` |
 | Web 主题同步原生 | Web 层调 `window.JavaHubTheme.setDark(isDark)` 校正状态栏图标（站内主题可能与系统不一致） | `ThemeBridge` |
 | 旋转不重载 | `android:configChanges="orientation\|screenSize\|..."` | `AndroidManifest.xml` |
-| 安全区适配 | `WindowInsetsCompat` 给 WebView 补 padding，避开刘海与手势条 | `onCreate` |
+| 安全区适配 | `setDecorFitsSystemWindows(window, true)` 交给系统托管，WebView 落在状态栏 / 导航栏内侧 | `onCreate` |
 | assets 没拷贝时提示 | 检查 `assets.open("index.html")`，显示可读的排查指引 | `loadHome()` |
 
 ---
@@ -307,10 +307,15 @@ adb uninstall com.learn.javahub
 
 ### 8. 状态栏与内容重叠 / 手势条遮住最后一课
 
-**原因**：边到边（edge-to-edge）已启用但没做 inset 适配。
+**原因**：WebView 顶到了屏幕最上沿，标题被系统状态栏压住。
 
-**解决**：本工程在 `MainActivity` 里用 `ViewCompat.setOnApplyWindowInsetsListener`
-给 WebView 补了 padding。若你把 WebView 换成了别的容器，记得同步这段逻辑。
+**说明**：本工程**不做边到边**，而是用 `WindowCompat.setDecorFitsSystemWindows(window, true)`
+把安全区交给系统托管，WebView 自动落在状态栏 / 导航栏内侧，刘海屏与手势条一并由系统适配，
+无需手动补 inset。
+
+> 为什么不用「边到边 + 手动补 inset」：Android WebView 里 `env(safe-area-inset-top)` 恒为 0
+> （它只对浏览器与刘海生效，不感知系统状态栏），而 `setOnApplyWindowInsetsListener`
+> 又容易错过分发时机，两层同时失效就会顶到状态栏。
 
 ### 9. `Could not find method 'compileSdk' / DSL 报错
 
