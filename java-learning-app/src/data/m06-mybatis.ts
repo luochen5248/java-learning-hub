@@ -18,9 +18,9 @@ export const module: RawModule = {
   phaseName: '阶段二 · 写出完整后端',
   icon: '🔌',
   cover: 'assets/img/m06-mybatis.jpg',
-  minutes: 120,
+  minutes: 150,
   summary:
-    'Java 不直接「认识」MySQL，中间隔着 JDBC 规范和连接池。本模块先让你看懂连接是怎么建立和复用的，再用 MyBatis-Plus 把待办清单接口改成真实读写数据库：继承一个 BaseMapper 就拥有全套单表 CRUD，用 LambdaQueryWrapper 拼条件，用分页插件对接前端的 pageNum / pageSize。',
+    'Java 不直接「认识」MySQL，中间隔着 JDBC 规范和连接池。本模块先让你看懂连接是怎么建立和复用的，再用 MyBatis-Plus 把待办清单接口改成真实读写数据库：继承一个 BaseMapper 就拥有全套单表 CRUD，用 LambdaQueryWrapper 拼条件，用分页插件对接前端的 pageNum / pageSize。收尾的避坑清单讲 updateById 置空失效、SQL 注入、N+1 查询这些真实项目里的高频问题。',
 
   flashcards: [
     { front: '裸 JDBC 操作数据库的六步？', back: '注册驱动 → 取连接 → 建语句 → 执行 → 处理结果集 → 关闭资源。', tag: '语法' },
@@ -33,6 +33,9 @@ export const module: RawModule = {
     { front: '分页插件怎么注册？', back: '注册 MybatisPlusInterceptor 并 addInnerInterceptor 分页插件。', tag: '配置' },
     { front: '为什么推荐 LambdaQueryWrapper？', back: '用 Todo::getTitle 方法引用代替字符串列名，字段改名或写错在编译期就报错，不会拖到运行时。', tag: '注解' },
     { front: '三个映射注解各管什么？', back: '@TableName 表名；@TableId 主键与生成策略；@TableLogic 逻辑删除。', tag: '注解' },
+    { front: 'updateById 想把某字段清成 NULL，为什么改不成功？', back: 'updateById 默认跳过 null 字段（NOT_NULL 策略）。置空要用 LambdaUpdateWrapper 的 set 字句。', tag: '坑点' },
+    { front: '#{} 与 ${} 的区别？', back: '#{} 预编译占位防 SQL 注入；${} 是字符串拼接，只用于动态表名/列名且必须白名单校验。', tag: '坑点' },
+    { front: '什么是 N+1 查询问题？', back: '列表页循环里逐条 selectById：1 次列表查询 + N 次单条查询。修法是先收集 id 再一次 in 批量查询。', tag: '坑点' },
   ],
 
   lessons: [
@@ -874,6 +877,207 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
           ],
           answer: 1,
           explain: '两个高频原因：处理器没被 Spring 管理（缺 @Component）；strictInsertFill 传的字段名写成了数据库列名 created_at，而它要的是 Java 属性名 createdAt。'
+        },
+      ],
+    },
+
+    /* ============================ m06-l05 避坑 ============================ */
+    {
+      id: 'm06-l05',
+      title: '避坑清单：MyBatis-Plus 高频翻车 Top 6',
+      minutes: 30,
+      goal: '收拢 MyBatis-Plus 日常使用最高频的 6 个坑：updateById 清空失效、SQL 注入、分页插件忘配、N+1 查询、逻辑删除的副作用、字段映射错位。每个坑都能在真实项目里找到原型。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>MyBatis-Plus 把 CRUD 包得太好，以至于「它默默帮你做了什么」反而成了盲区。这一课的 6 个坑全部源于「框架的默认行为和你以为的不一样」。逐个拆。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：updateById 清空字段，静默失败。</strong>需求：把待办的备注 remark 清空。你写了 <code>todo.setRemark(null); mapper.updateById(todo);</code> ——执行成功，数据库里 remark <strong>纹丝不动</strong>。原因：MP 默认的字段策略是 NOT_NULL，<strong>实体里为 null 的字段不会出现在 UPDATE 语句里</strong>（这是保护——防止没赋值的字段把数据冲掉）。想置空必须显式声明：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '三种置空方式',
+          code: `// 修法 1（推荐）：UpdateWrapper 的 set 子句，生成的 SQL 里明确带 remark = NULL
+LambdaUpdateWrapper<Todo> uw = new LambdaUpdateWrapper<>();
+uw.eq(Todo::getId, id)
+  .set(Todo::getRemark, null)
+  .set(Todo::getStatus, "done");
+todoMapper.update(null, uw);
+
+// 修法 2：全局改字段策略（影响面大，慎用）
+// application.yml:
+// mybatis-plus:
+//   global-config:
+//     db-config:
+//       update-strategy: IGNORED    # null 也会进 UPDATE，危险：忘赋值的字段全被清空
+
+// 修法 3：单字段上标注解
+// @TableField(updateStrategy = FieldStrategy.IGNORED)
+// private String remark;`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>为什么默认策略是好事：</strong>如果 <code>findById</code> 拿到实体后只改了 status，其余字段保持 null，全量 update 会把数据库里的 title、remark 全部抹成 NULL——那才是灾难。NOT_NULL 策略让 updateById 天然近似「部分更新」。记住分工：<strong>改部分字段用 updateById，清空字段用 UpdateWrapper.set</strong>。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：${'$'}{} 拼接导致 SQL 注入。</strong>MP 的 Wrapper 方法都是预编译的，安全；但手写 SQL 时 <code>${'$'}{ }</code> 是纯字符串拼接：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '注入对照',
+          code: `// 反面教材：前端传 title' OR '1'='1 就能拖走全表
+@Select("SELECT * FROM todo_list WHERE title = '\${title}'")
+List<Todo> search(String title);
+
+// 正面写法：#{} 预编译占位，参数只能当值，永远变不成 SQL 结构
+@Select("SELECT * FROM todo_list WHERE title = #{title}")
+List<Todo> search(String title);
+
+// \${} 唯一合法场景：动态表名/列名/排序方向（值不可能加引号）
+// 且必须白名单校验，绝不能直接透传用户输入
+String column = switch (sortField) {
+    case "title" -> "title";
+    case "createdAt" -> "created_at";
+    default -> "id";                      // 默认值兜底
+};`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：分页插件没配，selectPage 悄悄返回全表。</strong>MP 的分页不是它自带的，而是靠拦截器插件改写 SQL 追加 LIMIT。<strong>没注册插件时 selectPage 不报错</strong>——返回对象看着正常，但 total 为 0、records 是全表数据。数据量小的开发环境你根本发现不了，上生产才爆：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '分页插件标配',
+          code: `@Configuration
+public class MybatisPlusConfig {
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        return interceptor;
+    }
+}
+
+// 自查方法：日志里看生成的 SQL 有没有 LIMIT，total 是否正确
+// mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.stdout.StdOutImpl`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：N+1 查询。</strong>列表页 20 条待办，每条还要展示创建人昵称，你写成了循环查库：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'N+1 对照',
+          code: `// 反面教材：1 次列表查询 + N 次单条查询 = 21 条 SQL，接口耗时随数据量线性膨胀
+List<Todo> todos = todoMapper.selectList(null);
+for (Todo t : todos) {
+    User u = userMapper.selectById(t.getUserId());     // 循环里查库！
+    t.setOwnerName(u.getNickname());
+}
+
+// 正面写法：先收集 id，一次 in 批量查，再内存组装（2 条 SQL 搞定）
+List<Long> userIds = todos.stream().map(Todo::getUserId).distinct().toList();
+Map<Long, User> userMap = userMapper.selectBatchIds(userIds).stream()
+        .collect(Collectors.toMap(User::getId, u -> u));
+todos.forEach(t -> t.setOwnerName(userMap.get(t.getUserId()).getNickname()));
+
+// 数据量再大就上 JOIN 或看 m09 的 Redis 缓存`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：逻辑删除的三个副作用。</strong>实体加了 <code>@TableLogic</code> 后，MP 会把 delete 变成 UPDATE deleted=1，查询自动追加 <code>WHERE deleted=0</code>。三个副作用要心里有数：</p>
+<ul><li><strong>数据库里数据还在</strong>——唯一索引会冲突：同一个手机号删了重新注册，若 phone 上有 UNIQUE 索引直接报错（解法：唯一索引改为「phone + deleted」组合，或删号时改写手机号）；</li>
+<li><strong>想查已删数据要绕过 MP</strong>：自己写 SQL 或用自定义 mapper；</li>
+<li><strong>统计口径变化</strong>：selectCount 自动排除已删数据，别再手动加 deleted=0 条件（会重复）。</li></ul>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：字段名对不上，值悄悄是 null。</strong>实体属性 createdAt 查出来一直是 null？排查顺序：</p>
+<ul><li>数据库列是 created_at，MP 默认开启<strong>驼峰映射</strong>（camel ↔ snake），一般不用配；如果你在配置里关了 map-underscore-to-camel-case，就全断了；</li>
+<li>自定义列名用 <code>@TableField("create_time")</code> 显式声明；</li>
+<li>主键必须 <code>@TableId(type = IdType.AUTO)</code> 对上 AUTO_INCREMENT，否则插入后 id 回填是 null。</li></ul>`,
+        },
+        {
+          type: 'table',
+          title: 'MP 排查速查表',
+          head: ['现象', '第一嫌疑', '修法'],
+          rows: [
+            ['set null 后 updateById 改不动', 'NOT_NULL 默认策略', 'LambdaUpdateWrapper.set 显式置空'],
+            ['Wrapper 拼的条件没生效', '条件写进了错误的分支持路', '链式 .eq(condition, ...) 用布尔首位参数'],
+            ['selectPage 的 total 为 0 / 返回全表', '分页插件没注册', 'MybatisPlusInterceptor + PaginationInnerInterceptor'],
+            ['接口越来越慢，SQL 数暴涨', 'N+1 查询', '收集 id + selectBatchIds 批量查'],
+            ['删除后重新插入报唯一键冲突', '逻辑删除数据仍在', '唯一索引组合 deleted 或改写业务键'],
+            ['属性值全是 null', '驼峰映射断开 / 缺 @TableField', '查 map-underscore 配置与注解'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>updateById 的 NOT_NULL 策略 ≈ JS 里 <code>{...old, ...patch}</code> 只覆盖传入的键，undefined 不覆盖（区别是 MP 连显式 null 也拦，所以置空要专门的 set）；N+1 ≈ React 列表里每行单独发请求，经典优化就是批量接口；逻辑删除 ≈ 前端软删除（isDeleted 标记），但数据库层面多出唯一索引冲突这个前端遇不到的坑。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>能说出 updateById 与 UpdateWrapper.set 的分工。</li>
+<li>手写 SQL 一律 #{}，${'$'}{} 只用于白名单校验过的表名列名。</li>
+<li>新工程必配分页插件，接口开发必查 SQL 条数。</li></ul>
+<p><strong>课后实战练习（m07 会直接用到，务必做完）</strong>：m05 你建过 <code>user</code> 表——照本课 Todo 的三步（建实体 → 继承 BaseMapper → @MapperScan 扫描）给 user 表生成 <code>User</code> 实体和 <code>UserMapper</code>。下一模块的 Service 实战和登录鉴权都会用到它；N+1 修法示例里的 <code>userMapper.selectBatchIds</code> 也正是这个 Mapper。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'todo.setRemark(null) 后调用 updateById，数据库 remark 没变。原因是？',
+          options: [
+            'MP 的 bug',
+            '默认字段策略 NOT_NULL：为 null 的字段不会进入 UPDATE 语句',
+            'remark 不是索引列',
+            '需要先 delete 再 insert',
+          ],
+          answer: 1,
+          explain:
+            'NOT_NULL 策略保护你没赋值的字段不被冲掉，代价是无法用 updateById 置空。用 LambdaUpdateWrapper 的 set 子句显式生成 remark = NULL。',
+        },
+        {
+          q: '关于 #{} 与 ${}，正确的是？',
+          options: [
+            '${} 更快，业务 SQL 应优先用 ${}',
+            '#{} 是预编译占位，参数只能当值用，能防 SQL 注入',
+            '#{} 只能用在 INSERT 里',
+            '两者完全等价，写法偏好',
+          ],
+          answer: 1,
+          explain:
+            '#{} 走 PreparedStatement 参数占位，用户输入永远不会变成 SQL 结构；${} 是字符串拼接，只能用于动态表名/列名且必须白名单校验。',
+        },
+        {
+          q: 'selectPage 返回的 records 是全表数据、total 是 0，最可能的原因是？',
+          options: [
+            '数据库版本太低',
+            '分页拦截器插件没有注册，LIMIT 根本没被加到 SQL 上',
+            'Page 对象没传参数',
+            '实体类没加 @TableName',
+          ],
+          answer: 1,
+          explain:
+            'MP 分页靠 MybatisPlusInterceptor 里的 PaginationInnerInterceptor 改写 SQL。没注册时不报错但分页完全失效——开发环境数据少不易发现，是经典上线事故。',
+        },
+        {
+          q: '列表接口要给 50 条待办补上创建人昵称，正确姿势是？',
+          options: [
+            '循环里对每条待办 selectById 查用户',
+            '先收集去重后的 userId，一次 selectBatchIds 批量查，再内存组装 Map',
+            '让前端自己查',
+            '把用户表全部查出来遍历匹配',
+          ],
+          answer: 1,
+          explain:
+            '循环查库是 N+1 问题：SQL 数 = 列表数 + 1，耗时线性膨胀。批量 in 查询固定 2 条 SQL；量级再大用 JOIN 或缓存（m09）。',
         },
       ],
     },

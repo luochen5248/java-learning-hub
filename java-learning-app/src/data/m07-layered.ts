@@ -18,9 +18,9 @@ export const module: RawModule = {
   phaseName: '阶段二 · 写出完整后端',
   icon: '🧱',
   cover: 'assets/img/m07-layered.jpg',
-  minutes: 130,
+  minutes: 260,
   summary:
-    '能跑通和能维护是两回事。本模块给待办清单 API 做一次「成人礼」：把堆在 Controller 里的逻辑拆成 Controller-Service-Mapper 三层，用 DTO/VO/PO 隔开数据库结构与接口契约，用 Result<T> + @RestControllerAdvice 统一返回和错误，最后用 @Transactional 保证批量操作的原子性。学完你就拥有了一个结构完整的后端项目。',
+    '能跑通和能维护是两回事。本模块给待办清单 API 做一次「成人礼」：把堆在 Controller 里的逻辑拆成 Controller-Service-Mapper 三层，用 DTO/VO/PO 隔开数据库结构与接口契约，用 Result<T> + @RestControllerAdvice 统一返回和错误，再用 @Transactional 保证批量操作的原子性。第五课按公司项目的真实写法把 Service 层写全套：接口+实现类、Bean Validation 参数校验、业务异常与错误码；第六课避坑清单收拢事务自调用失效、事务里发 HTTP、上帝 Controller 这些真实事故；第七课是毕业实战——给项目补上 JWT 登录鉴权、标准分页封装与 Excel 报表导出三件公司项目标配。学完你就拥有了一个结构完整、能过评审、能交付的后端项目。',
 
   flashcards: [
     { front: '三层架构各自负责什么？', back: 'Controller 接参数返结果；Service 管业务与事务；Mapper 只管 SQL。单向依赖。', tag: '注解' },
@@ -33,6 +33,13 @@ export const module: RawModule = {
     { front: 'Boot 3 的校验注解在哪个包？', back: 'jakarta.validation.constraints.*，Boot 3 已从 javax 迁到 jakarta。', tag: '坑点' },
     { front: '为什么推荐构造器注入？', back: '依赖不可变、能提前暴露循环依赖、便于单测；字段注入会被 IDEA 警告。', tag: '注解' },
     { front: '@Transactional 默认对什么异常回滚？', back: '默认只回滚 RuntimeException 与 Error；受检异常需写 rollbackFor。', tag: '坑点' },
+    { front: 'Service 先写接口再写 Impl 的三个理由？', back: '事务 AOP 基于代理更稳；同一接口可多实现（如不同存储策略）；单元测试可用 Mockito 替身注入。', tag: '规范' },
+    { front: '参数校验的分工？', back: 'Bean Validation（@NotBlank/@Size/@Pattern）管格式，标注在 DTO 上由 @Valid 触发；业务规则（重名、超限）在 Service 里用业务异常表达。', tag: '规范' },
+    { front: '业务异常怎么抛给前端？', back: 'throw new BizException(ErrorCode.TODO_NOT_FOUND)，@RestControllerAdvice 统一转成 Result{code,msg}。', tag: '规范' },
+    { front: '几千条数据批量插入用什么？', back: 'service.saveBatch(list)（MP 封装）或 XML foreach 批量 VALUES；循环单条 insert 是性能事故。', tag: '坑点' },
+    { front: 'JWT 由哪三段组成？', back: 'Header.Payload.Signature，前两段 Base64 可解码（别放敏感信息），签名由服务端密钥保证不可篡改。', tag: '实战' },
+    { front: '分页参数为什么要限制 pageSize 上限？', back: '不限制时前端传 100000 就是一次全表拖取。@Max(100) 上限 + 默认 10 是标准防御。', tag: '实战' },
+    { front: '导出 Excel 为什么不能一次查全量？', back: '几十万行会撑爆堆和连接。分批查（游标/按页循环）+ 流式写出的 EasyExcel 消费，内存占用恒定。', tag: '实战' },
   ],
 
   lessons: [
@@ -881,7 +888,760 @@ public class TodoServiceImpl implements TodoService {
             '抛二次异常'
           ],
           answer: 1,
-          explain: '代理只有在感知到异常抛出时才回滚。把异常 catch 掉就等于告诉 Spring「一切正常」，于是事务提交，前面的写操作全部落库。要么往外抛，要么用 TransactionAspectSupport 手动标记回滚。'
+          explain: '代理只有在感知到异常抛出时才回滚。把异常 catch 掉就等于告诉 Spring「一切正常」，于是事务提交，前面的写操作全部落库。要么往外抛，要么用 TransactionAspectSupport 手动 setRollbackOnly 标记回滚。'
+        },
+      ],
+    },
+
+    /* ============================ m07-l05 Service 实战模式 ============================ */
+    {
+      id: 'm07-l05',
+      title: 'Service 实战模式：按公司项目的写法把业务层补完整',
+      minutes: 40,
+      goal: '把「结构对了」推进到「跟公司项目一样」：接口 + 实现类的固定套路、把校验前移到 Bean Validation、用错误码 + 业务异常表达失败、Controller 只做薄薄一层转发。学完这一课，你看任何公司的业务代码都不会陌生。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>l01~l04 解决了「分层是什么」，这一课回答「公司项目里 Service 层到底长什么样」。四个固定套路：<strong>接口 + 实现类、DTO 上做 Bean Validation、业务失败抛业务异常、Controller 只做转发</strong>。套路背后各有一个工程理由，不是仪式感。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>套路 1：先写接口，再写实现类。</strong>公司项目里几乎见不到「直接 @Service 一个类」的写法，标配是 <code>TodoService</code>（接口）+ <code>TodoServiceImpl</code>（实现）。三个理由：</p>
+<ul><li><strong>代理更稳</strong>：事务 AOP 给 Bean 生成代理时，JDK 动态代理基于接口（CGLIB 基于子类，Final 类/方法会翻车）；</li>
+<li><strong>多实现扩展</strong>：明天要支持「导出到文件存储」，写一个 <code>TodoFileService implements TodoService</code>，Controller 一行不改，用 @Qualifier 切换；</li>
+<li><strong>测试友好</strong>：单测 Controller 时用 Mockito mock 接口即可，不用拉起数据库。</li></ul>
+<p>命名惯例：<code>xxxService</code> + <code>xxxServiceImpl</code>，前端的类比是「<code>api/todo.ts</code> 里先定 interface 再实现 fetch 函数」——只是 Java 把接口变成了显式语法。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'TodoService.java（接口）',
+          code: `public interface TodoService {
+
+    /** 分页查询：按关键字与状态过滤 */
+    PageResultVO<TodoVO> page(TodoQueryDTO query);
+
+    /** 创建待办：校验重名，成功返回新 id */
+    Long create(TodoCreateDTO dto);
+
+    /** 批量标记完成（事务方法） */
+    int completeBatch(List<Long> ids);
+
+    /** 完成率统计：前端首页的进度环用 */
+    TodoStatsVO stats();
+}`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'TodoServiceImpl.java（实现骨架）',
+          code: `@Service
+@RequiredArgsConstructor          // Lombok 生成构造器注入，替代手写 @Autowired 构造器
+public class TodoServiceImpl implements TodoService {
+
+    private final TodoMapper todoMapper;           // 只能依赖 Mapper 或其他 Service，单向
+
+    @Override
+    public Long create(TodoCreateDTO dto) {
+        // 业务校验：格式校验已由 Bean Validation 前置完成，这里只管业务规则
+        Long count = todoMapper.selectCount(
+                new LambdaQueryWrapper<Todo>().eq(Todo::getTitle, dto.getTitle()));
+        if (count > 0) {
+            throw new BizException(ErrorCode.TODO_DUPLICATED);   // 业务失败 → 异常表达
+        }
+        Todo todo = new Todo();
+        BeanUtils.copyProperties(dto, todo);     // DTO → PO（m02 讲过 MapStruct 更佳）
+        todoMapper.insert(todo);
+        return todo.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)   // 事务边界在 Service，批量操作必须原子
+    public int completeBatch(List<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            throw new BizException(ErrorCode.PARAM_EMPTY);
+        }
+        return todoMapper.update(null, new LambdaUpdateWrapper<Todo>()
+                .in(Todo::getId, ids)
+                .set(Todo::getStatus, "done")
+                .set(Todo::getDoneTime, LocalDateTime.now()));
+    }
+
+    @Override
+    public TodoStatsVO stats() {
+        long total = todoMapper.selectCount(null);
+        long done  = todoMapper.selectCount(new LambdaQueryWrapper<Todo>()
+                .eq(Todo::getStatus, "done"));
+        return TodoStatsVO.of(total, done);      // 前端进度环要的 percent 在 VO 里算好
+    }
+}`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>套路 2：格式校验前移到 DTO（Bean Validation）。</strong>「标题不能为空、长度 1~50」这类<strong>格式规则</strong>不该在 Service 里写 if——注解声明在 DTO 字段上，由 <code>@Valid</code> 在进入 Controller 之前统一触发。Service 里只留<strong>业务规则</strong>（重名、库存不足这种要查库才知道的）：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'TodoCreateDTO.java + Controller 触发',
+          code: `// DTO 上声明格式规则（jakarta.validation.constraints.*）
+@Data
+public class TodoCreateDTO {
+    @NotBlank(message = "标题不能为空")
+    @Size(max = 50, message = "标题最多 50 字")
+    private String title;
+
+    @Pattern(regexp = "^(high|mid|low)$", message = "优先级取值不合法")
+    private String priority;
+
+    @Future(message = "截止时间必须晚于现在")
+    private LocalDateTime dueTime;
+}
+
+// Controller 上加 @Valid，格式不对的请求根本进不了方法体
+@PostMapping
+public Result<Long> create(@RequestBody @Valid TodoCreateDTO dto) {
+    return Result.ok(todoService.create(dto));
+}
+
+// 格式错误抛 MethodArgumentNotValidException，全局处理器兜住取第一条文案
+@ExceptionHandler(MethodArgumentNotValidException.class)
+public Result<Void> handleValid(MethodArgumentNotValidException e) {
+    String msg = e.getBindingResult().getFieldErrors().stream()
+            .map(FieldError::getDefaultMessage)
+            .findFirst()
+            .orElse("参数不合法");
+    return Result.fail(400, msg);
+}`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>套路 3：业务失败 = 错误码 + 业务异常。</strong>「重名了」「已经完成了不能重复完成」这类失败，用受控的业务异常表达，别返回 null、别返回布尔值——前端只认 Result{code,msg,data} 一种语言：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'ErrorCode.java + BizException.java',
+          code: `// 错误码枚举：码段按模块分段，避免全项目随机撒数字
+public enum ErrorCode {
+    OK(0, "成功"),
+    PARAM_ERROR(40000, "参数错误"),
+    TODO_DUPLICATED(40101, "同名待办已存在"),
+    TODO_NOT_FOUND(40102, "待办不存在或已删除"),
+    SYSTEM_ERROR(50000, "系统繁忙，请稍后再试");
+
+    private final int code;
+    private final String msg;
+    // 构造器 + getter 省略（Lombok @Getter）
+}
+
+// 业务异常：只带错误码，文案从枚举里取，别手拼字符串
+@Getter
+public class BizException extends RuntimeException {
+    private final ErrorCode error;
+    public BizException(ErrorCode error) {
+        super(error.getMsg());
+        this.error = error;
+    }
+}
+
+// 全局处理器注册业务异常分支（挂在已有 @RestControllerAdvice 里）
+@ExceptionHandler(BizException.class)
+public Result<Void> handleBiz(BizException e) {
+    log.warn("业务异常: {}", e.getError());     // 业务失败打 warn 就够，error 留给系统异常
+    return Result.fail(e.getError().getCode(), e.getError().getMsg());
+}`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>套路 4：Controller 做薄层。</strong>Controller 的全部职责只有四件事：收参数（含 @Valid）、调 Service、把返回值装进 Result、声明路由。超过 10 行的 Controller 方法基本可以判定分层失败了。对照一下公司项目的调用纪律：</p>`,
+        },
+        {
+          type: 'table',
+          title: '分层调用纪律速查',
+          head: ['层', '可以调', '禁止事项'],
+          rows: [
+            ['Controller', 'Service（可以多个）', '直接调 Mapper；写业务逻辑；拼 SQL 条件'],
+            ['Service', 'Mapper、其他 Service（单向）', '被循环依赖；在事务里发 HTTP / 做耗时计算'],
+            ['Mapper', '只管本表 SQL', '调用 Service / Controller；写业务判断'],
+            ['统一规则', 'DTO 进 / VO 出', 'PO 直接跨层暴露给前端（m02 已讲敏感字段泄漏）'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>Service 接口 + Impl ≈ <code>composables</code> 里先定签名再实现的组合函数；Bean Validation ≈ 请求体用 zod / yup 的 schema 校验，只是 Java 用注解声明、框架自动执行；BizException + 全局处理器 ≈ axios 拦截器里统一把错误 toast 出去——后端把「怎么报错」也标准化了，前端只需处理 code !== 0 一种情况。<strong>这一课的四个套路，就是你读公司项目时先找的四样东西：接口、DTO 注解、错误码枚举、Controller 转发。</strong></p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>待办清单项目补齐 TodoService/Impl、ErrorCode、BizException 三件套。</li>
+<li>给创建接口加上 @Valid 校验，用 Postman 故意传空标题验证 400 返回。</li>
+<li>Controller 逐行自查：有没有超过 10 行、有没有直调 Mapper。</li></ul>`,
+        },
+      ],
+      quiz: [
+        {
+          q: '公司项目 Service 层先写接口再写实现类，下列哪项不是这么做的原因？',
+          options: [
+            '事务等 AOP 代理基于接口更稳定',
+            '同一个接口可以有多个实现，扩展时不改调用方',
+            '单元测试可以 Mockito mock 接口',
+            '接口能让代码运行更快，性能更好',
+          ],
+          answer: 3,
+          explain:
+            '接口本身不带来运行性能提升（JIT 一视同仁）。它的价值在工程层面：代理稳定、多态扩展、测试替身。选 D 是因为「性能」是这一题里唯一的伪理由。',
+        },
+        {
+          q: '「标题不能为空、最长 50 字」与「同名待办已存在」，这两个校验的正确归宿是？',
+          options: [
+            '都写在 Controller 里 if 判断',
+            '前者用 Bean Validation 注解声明在 DTO，后者在 Service 抛业务异常',
+            '都写在前端 Vue 表单里就够了',
+            '前者在 Service 抛异常，后者写进数据库唯一索引后就不管了',
+          ],
+          answer: 1,
+          explain:
+            '格式校验与业务校验分工：格式规则声明式（@NotBlank/@Size），进入业务前由 @Valid 统一拦截；业务规则依赖数据库状态，只能在 Service 里判断并以 BizException 表达。唯一索引可以兜底并发，但需要专门处理冲突异常，不能「不管了」。',
+        },
+        {
+          q: 'Service 里检测到「待办不存在」，应该怎么把失败传给前端？',
+          options: [
+            'return null，前端自己判断',
+            '返回 Result.ok() 但 data 里放个错误标记',
+            'throw new BizException(ErrorCode.TODO_NOT_FOUND)，由全局异常处理器统一转成 Result{code,msg}',
+            'System.out.println 后继续执行',
+          ],
+          answer: 2,
+          explain:
+            '业务失败用受控异常表达，全局 @RestControllerAdvice 统一转换为 Result 结构——全项目只有一种失败表达方式，前端处理 code !== 0 一条路径即可。null 和布尔值会让失败语义散落各处。',
+        },
+        {
+          q: 'Controller 里出现下面哪种代码，可以判定分层失败？',
+          options: [
+            '把 @Valid DTO 转交给 Service 后 return Result.ok(...)',
+            '调用两个 Service 组合结果并组装 VO',
+            '直接注入 TodoMapper 并手写 LambdaQueryWrapper 拼查询条件',
+            '方法上声明 @GetMapping("/page")',
+          ],
+          answer: 2,
+          explain:
+            'Controller 直调 Mapper = 绕过业务层，事务、缓存、业务校验全部落空。B 选项「组合多个 Service」属于编排，是 Controller 可以接受的职责；A、D 是标准写法。',
+        },
+      ],
+    },
+
+    /* ============================ m07-l06 避坑 ============================ */
+    {
+      id: 'm07-l06',
+      title: '避坑清单：业务层事故 Top 6',
+      minutes: 30,
+      goal: '收拢业务层（Service）的事故清单：上帝 Controller、事务自调用失效、事务里发 HTTP、批量操作循环插入、吞异常假成功、Service 循环依赖。每一条都能在生产代码里找到原型。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>l05 把 Service 写标准了，这一课把「写歪了会怎样」摆出来。这 6 个坑的共同特点：<strong>编译期全绿、单测能过、上量才炸</strong>——所以值得在写代码时就预防。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：上帝 Controller。</strong>接手老项目最常见的景象：Controller 里 300 行，注入 Mapper、拼 Wrapper、算业务、发通知全在一起。后果：没法复用（下个接口要同样逻辑只能复制）、没法测（单测必须起 Web 环境）、事务粒度失控。重构手法就是 m07 全模块讲的事：把逻辑下沉到 Service，Controller 保留参数转换与转发。<strong>自查口诀：Controller 方法超过 10 行，或注入了 Mapper，就该拆了。</strong></p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：事务自调用失效（m04 预告过，这里给全解法）。</strong>同一个类里，方法 A（无注解）内部调用方法 B（带 @Transactional）——事务<strong>不会生效</strong>。原理：<code>this.B()</code> 走的是原始对象，不经过带事务的代理对象：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '三种修法',
+          code: `@Service
+@RequiredArgsConstructor
+public class TodoServiceImpl implements TodoService {
+
+    // 修法 1（推荐）：把 B 挪到另一个 Service，跨 Bean 调用必然走代理
+    private final TodoBatchService batchService;   // B 所在的新类
+    public void importTodos(List<TodoCreateDTO> list) {
+        // 校验、去重等无事务逻辑
+        batchService.saveAll(list);                // 跨 Bean → 代理生效
+    }
+
+    // 修法 2：自己注入自己，通过代理对象调用（能跑，但读起来怪，少用）
+    @Lazy @Autowired private TodoServiceImpl self;
+    public void importTodos2(List<TodoCreateDTO> list) {
+        self.completeBatch(...);                   // 经代理
+    }
+
+    // 修法 3：从上下文拿代理
+    // TodoService proxy = (TodoService) AopContext.currentProxy(); 需 exposeProxy=true
+}`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：事务里发 HTTP / 调外部接口。</strong>@Transactional 方法里调用第三方接口、发消息、传文件——数据库连接被占着干与本库无关的慢活。连接池默认 10 个连接，5 个并发请求各拖 3 秒 HTTP，<strong>整个服务的数据库操作瞬间排队</strong>，雪崩式超时：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '拆事务',
+          code: `// 反面教材：HTTP 调用在事务内，慢接口拖死连接池
+@Transactional(rollbackFor = Exception.class)
+public void completeAndNotify(Long id) {
+    todoMapper.updateStatus(id, "done");
+    webhookClient.post("/notify", payload);       // 3 秒！事务与连接全程被占用
+    notifyMapper.insert(...);
+}
+
+// 正面写法：先短事务改库，事务提交后再做通知（失败也不影响主流程）
+@Transactional(rollbackFor = Exception.class)
+public void complete(Long id) {
+    todoMapper.updateStatus(id, "done");          // 毫秒级
+}
+
+public void completeAndNotify(Long id) {
+    complete(id);                                 // 事务方法（注意：必须跨 Bean 调用才生效）
+    TransactionSynchronizationManager.registerSynchronization(...);  // 或简单点：提交后直接发
+    webhookClient.postAsync("/notify", payload);  // 异步、带超时与重试
+}`,
+        },
+        {
+          type: 'diagram',
+          caption: '事务里发 HTTP：10 个连接被慢调用占满，后面的请求全部排队超时；短事务 + 事后异步通知才是正解',
+          svg: String.raw`<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arr-m07-pool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#F59E0B"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="320" rx="12" fill="#0F1B2D"/>
+  <text x="340" y="32" text-anchor="middle" font-size="16" fill="#E2E8F0">连接池只有 10 个：慢 HTTP 把它们全部拖住</text>
+
+  <text x="76" y="66" text-anchor="middle" font-size="12" fill="#E2E8F0">请求进来</text>
+  <rect x="24" y="76" width="104" height="44" rx="10" fill="#1B2A44" stroke="#3B82F6" stroke-width="1.4"/>
+  <text x="76" y="96" text-anchor="middle" font-size="11.5" fill="#E2E8F0">@Transactional</text>
+  <text x="76" y="112" text-anchor="middle" font-size="10.5" fill="#94A3B8">借一个连接</text>
+
+  <line x1="128" y1="98" x2="176" y2="98" stroke="#F59E0B" stroke-width="1.8" marker-end="url(#arr-m07-pool)"/>
+
+  <text x="290" y="66" text-anchor="middle" font-size="12" fill="#F59E0B">连接池（默认 10 个）</text>
+  <g font-size="10" text-anchor="middle">
+    <rect x="180" y="76" width="52" height="44" rx="8" fill="#3A2416" stroke="#F59E0B" stroke-width="1.4"/>
+    <text x="206" y="95" fill="#FBBF24">conn 1</text><text x="206" y="110" fill="#FCA5A5">HTTP 3s</text>
+    <rect x="240" y="76" width="52" height="44" rx="8" fill="#3A2416" stroke="#F59E0B" stroke-width="1.4"/>
+    <text x="266" y="95" fill="#FBBF24">conn 2</text><text x="266" y="110" fill="#FCA5A5">HTTP 3s</text>
+    <rect x="300" y="76" width="52" height="44" rx="8" fill="#3A2416" stroke="#F59E0B" stroke-width="1.4"/>
+    <text x="326" y="95" fill="#FBBF24">conn 3</text><text x="326" y="110" fill="#FCA5A5">HTTP 3s</text>
+    <rect x="360" y="76" width="52" height="44" rx="8" fill="#3A2416" stroke="#F59E0B" stroke-width="1.4"/>
+    <text x="386" y="95" fill="#FBBF24">conn 4</text><text x="386" y="110" fill="#FCA5A5">HTTP 3s</text>
+    <rect x="420" y="76" width="52" height="44" rx="8" fill="#3A2416" stroke="#F59E0B" stroke-width="1.4"/>
+    <text x="446" y="95" fill="#FBBF24">conn 5</text><text x="446" y="110" fill="#FCA5A5">HTTP 3s</text>
+    <rect x="480" y="76" width="52" height="44" rx="8" fill="#16223A" stroke="#475569" stroke-width="1.2"/>
+    <text x="506" y="95" fill="#64748B">conn 6</text><text x="506" y="110" fill="#475569">空闲</text>
+    <rect x="540" y="76" width="52" height="44" rx="8" fill="#16223A" stroke="#475569" stroke-width="1.2"/>
+    <text x="566" y="95" fill="#64748B">conn 7</text><text x="566" y="110" fill="#475569">空闲</text>
+    <rect x="600" y="76" width="52" height="44" rx="8" fill="#16223A" stroke="#475569" stroke-width="1.2"/>
+    <text x="626" y="95" fill="#64748B">conn 8</text><text x="626" y="110" fill="#475569">空闲</text>
+  </g>
+  <text x="340" y="140" text-anchor="middle" font-size="11" fill="#FCA5A5">5 个并发各拖 3 秒 HTTP → 半个池子被无效占用；10 个并发 = 全占满</text>
+
+  <rect x="24" y="156" width="628" height="42" rx="10" fill="#2A1620" stroke="#EF4444" stroke-width="1.4"/>
+  <text x="338" y="174" text-anchor="middle" font-size="12" fill="#F87171">新请求拿不到连接 → 全部排队 → connection is not available / 接口雪崩式超时</text>
+  <text x="338" y="191" text-anchor="middle" font-size="10.5" fill="#FCA5A5">看起来像「数据库挂了」，其实是事务里夹了慢调用</text>
+
+  <text x="340" y="228" text-anchor="middle" font-size="13" fill="#6EE7B7">✓ 正确姿势：事务只包 DB 写，通知类副作用异步化</text>
+  <g font-size="11" text-anchor="middle">
+    <rect x="40" y="240" width="180" height="48" rx="10" fill="#12261E" stroke="#10B981" stroke-width="1.4"/>
+    <text x="130" y="260" fill="#6EE7B7">@Transactional complete()</text>
+    <text x="130" y="277" fill="#34D399">毫秒级落库 → 提交 → 归还连接</text>
+    <line x1="220" y1="264" x2="268" y2="264" stroke="#10B981" stroke-width="1.6" marker-end="url(#arr-m07-pool)"/>
+    <rect x="272" y="240" width="180" height="48" rx="10" fill="#12261E" stroke="#10B981" stroke-width="1.4"/>
+    <text x="362" y="260" fill="#6EE7B7">事务提交后</text>
+    <text x="362" y="277" fill="#34D399">postAsync 通知（带超时重试）</text>
+    <line x1="452" y1="264" x2="500" y2="264" stroke="#10B981" stroke-width="1.6" marker-end="url(#arr-m07-pool)"/>
+    <rect x="504" y="240" width="148" height="48" rx="10" fill="#16223A" stroke="#475569" stroke-width="1.2"/>
+    <text x="578" y="260" fill="#94A3B8">通知失败？</text>
+    <text x="578" y="277" fill="#64748B">重试 / 告警，不拖累主流程</text>
+  </g>
+  <text x="340" y="310" text-anchor="middle" font-size="11" fill="#94A3B8">一句话：事务的边界 = 数据库写操作的边界，一行慢调用都别放进来</text>
+</svg>`,
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>事务里发 HTTP ≈ React 的 useEffect 里同步 await 一个慢接口再 setState，把整个渲染流水线卡住。正确姿势同样是「先落关键状态，副作用异步化」。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：批量操作循环单条 insert。</strong>导入 5000 条待办，写成 for 循环里 <code>todoMapper.insert(t)</code>——5000 次网络往返，本地 3 秒、跨机房 30 秒起步，还占着长事务：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '批量对照',
+          code: `// 反面教材：N 次往返
+for (TodoCreateDTO dto : list) {
+    todoMapper.insert(convert(dto));
+}
+
+// 修法 1（最省事）：MyBatis-Plus 的 saveBatch（内部按 batch_size=1000 分批提交）
+todoService.saveBatch(convertList(list));
+
+// 修法 2（最快）：XML foreach 拼多行 VALUES，一条 SQL 插完
+// INSERT INTO todo_list (title, priority) VALUES
+// <foreach collection="list" item="t" separator=",">
+//   (#{t.title}, #{t.priority})
+// </foreach>
+
+// 注意上限：单条 SQL 也要有度，1 万条以上建议分片（每批 1000）`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：吞异常制造「假成功」。</strong>catch 之后既不抛也不记，返回 true——前端看到成功，数据根本没落库。修法在 m03-l08 讲过（log.error 带异常对象），业务层的加强版口诀：<strong>能处理的处理完往上返回成功；处理不了的原样上抛，让全局处理器说话；绝不 catch 后返回成功</strong>。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：Service 循环依赖。</strong>OrderService 注入 TodoService，TodoService 又注入 OrderService——Boot 2.6+ 直接启动失败（m04-l05 讲过报错长相）。业务层的根治思路是<strong>抽「中间层」</strong>：把两个 Service 都要用的能力抽成第三个 Service（如 ShareService / NotifyService），依赖图从环变树。这也回应了你对「业务的中间层」的疑问：<strong>中间层 = 被多个业务复用的能力层（通知、权限、审计、文件），它让依赖保持单向</strong>。</p>`,
+        },
+        {
+          type: 'table',
+          title: '业务层事故速查表',
+          head: ['事故', '典型症状', '预防 / 修法'],
+          rows: [
+            ['上帝 Controller', '一个方法 300 行、注入 Mapper', '逻辑下沉 Service；Controller 只转发'],
+            ['事务自调用', '方法内调本类事务方法不回滚', '拆到另一个 Service；或 self 注入走代理'],
+            ['事务里发 HTTP', '高峰期全服务 DB 超时', '事务只包 DB 操作，副作用异步化'],
+            ['循环单条 insert', '导入接口分钟级超时', 'saveBatch 或 foreach VALUES'],
+            ['吞异常假成功', '前端显示成功但数据缺失', '异常上抛全局处理器；log.error 带堆栈'],
+            ['Service 循环依赖', '启动报 form a cycle', '抽公共中间层，保持依赖单向'],
+          ],
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>对待办清单项目跑一遍自查表：Controller 行数、事务边界、批量写法。</li>
+<li>能复述「事务里为什么不能发 HTTP」的连接池视角。</li>
+<li>理解中间层的价值：抽能力，保单向。</li></ul>
+<p>阶段二只剩最后一站：m08 把项目打成 jar 部署出去。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: '同类中方法 A 调用带 @Transactional 的方法 B，事务失效。最推荐的根治修法是？',
+          options: [
+            '给 A 也加上 @Transactional',
+            '把 B 挪到另一个 Service 类，跨 Bean 调用自然经过代理',
+            '把 B 改成 static 方法',
+            '在 B 里手动 catch 异常防止回滚',
+          ],
+          answer: 1,
+          explain:
+            '自调用失效的根因是 this 调用绕过了事务代理。跨 Bean 调用必然走代理，是最干净的修法；self 注入与 exposeProxy 属于应急。给 A 也加注解不解决「A 里 B 之前的 SQL 与 B 不在同一事务」的问题。',
+        },
+        {
+          q: '@Transactional 方法里调用第三方 HTTP 接口（平均 3 秒），最大风险是？',
+          options: [
+            'HTTP 返回值无法序列化',
+            '数据库连接被长期占用，高并发下连接池耗尽、全服务排队超时',
+            '事务会自动变只读',
+            '没有任何风险，只是代码不好看',
+          ],
+          answer: 1,
+          explain:
+            '事务未提交期间连接不归还池。10 个连接的池，5 个并发各拖 3 秒就把池占满，所有 DB 操作排队。修法：事务只包 DB 写，通知类副作用异步化。',
+        },
+        {
+          q: '导入 8000 条数据，下列哪种写法性能最差？',
+          options: [
+            'service.saveBatch(list, 1000)',
+            'XML foreach 拼多行 VALUES 分批插入',
+            'for 循环里逐条 todoMapper.insert(dto)',
+            '先转换全部 DTO，再一次批量入库',
+          ],
+          answer: 2,
+          explain:
+            '逐条 insert = 8000 次网络往返 + 8000 次提交，还可能撑出长事务。saveBatch 与 foreach VALUES 都把往返次数降到个位数。',
+        },
+        {
+          q: '两个 Service 互相注入导致启动报循环依赖，从业务架构上最合适的解法是？',
+          options: [
+            '配置 allow-circular-references=true',
+            '把两者都用到的能力（如通知、审计）抽成第三个 Service，让依赖变成单向树',
+            '全部改成字段注入',
+            '删掉其中一个 Service',
+          ],
+          answer: 1,
+          explain:
+            '循环依赖是职责划分问题的信号。抽公共「能力层/中间层」让 A→C、B→C，环自然解开。放行配置只是延后爆炸，字段注入不改变依赖关系。',
+        },
+      ],
+    },
+
+    /* ============================ m07-l07 毕业实战 ============================ */
+    {
+      id: 'm07-l07',
+      title: '毕业实战：登录鉴权、标准分页与 Excel 导出',
+      minutes: 60,
+      goal: '把公司项目里出现率最高的三件标配补齐到待办清单项目：JWT 登录 + 拦截器鉴权、PageQuery→PageResultVO 标准分页、EasyExcel 流式导出。做完这课，你的项目骨架可以直接套进真实工作。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>这一课是阶段二的毕业设计。三件标配在几乎所有公司项目里都会出现：<strong>登录鉴权（知道是谁在调接口）、分页（列表接口的标准形态）、报表导出（老板最爱）</strong>。逐件落地。</p>
+<p><strong>前置准备（1 分钟）</strong>：登录要用到用户数据。m05 你建过 <code>user</code> 表，m06 课后练习里让它照 Todo 的三步生成了 <code>User</code> 实体 + <code>UserMapper</code>——如果还没做，现在补上，本课所有代码都建立在它之上。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>实战 1：登录鉴权（JWT 方案）。</strong>前后端分离项目里，服务端不再用 Session 记住你，而是发一张「签名过的通行证」——登录成功返回一个 JWT 字符串，之后每次请求放进 <code>Authorization: Bearer xxx</code> 头里带上，服务端验签通过就放行：</p>`,
+        },
+        {
+          type: 'compare',
+          title: 'Session vs JWT 怎么选',
+          head: ['维度', 'Session + Cookie', 'JWT（前后端分离主流）'],
+          rows: [
+            ['状态存放', '服务端存会话（占内存/Redis）', '无状态，信息编码在令牌里'],
+            ['跨域 / App 支持', 'Cookie 麻烦，App 需额外处理', '放 Header 即可，天然友好'],
+            ['注销', '直接删 Session，立即可靠', '签发短的过期时间 + 主动维护黑名单'],
+            ['适用', '传统多页应用', 'Vue 单页 + App + 小程序'],
+          ],
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'AuthService.java（登录签发）',
+          code: `// 依赖：io.jsonwebtoken:jjwt-api 0.12.x（+ jjwt-impl / jjwt-jackson 运行时）
+@Service
+@RequiredArgsConstructor
+public class AuthServiceImpl implements AuthService {
+
+    private final UserMapper userMapper;
+    private final SecretKey key;                 // 从配置读取（见下方说明），绝不硬编码
+
+    @Override
+    public LoginVO login(LoginDTO dto) {
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, dto.getUsername()));
+        // 密码校验用 BCrypt：数据库只存密文；错误信息统一模糊，不提示「用户不存在还是密码错」
+        if (user == null || !BCrypt.checkpw(dto.getPassword(), user.getPassword())) {
+            throw new BizException(ErrorCode.LOGIN_FAILED);
+        }
+        // 签发 JWT：只放 id 和昵称。前两段是 Base64 可解码的，别塞密码/手机号进去
+        String token = Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("nickname", user.getNickname())
+                .expiration(Date.from(Instant.now().plus(2, ChronoUnit.HOURS)))   // 2 小时过期
+                .signWith(key)
+                .compact();
+        return new LoginVO(token, user.getNickname());
+    }
+}
+
+// 密钥配置（application.yml）——生产环境从环境变量注入，见 m08 配置外置
+// app.jwt.secret: 一个足够长的随机串，泄露=任何人可伪造登录`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'AuthInterceptor.java（统一验签）',
+          code: `public class AuthInterceptor implements HandlerInterceptor {
+
+    private final SecretKey key;
+
+    @Override
+    public boolean preHandle(HttpServletRequest req, HttpServletResponse resp, Object handler) {
+        String auth = req.getHeader("Authorization");
+        if (auth == null || !auth.startsWith("Bearer ")) {
+            resp.setStatus(401);
+            return false;                         // 没带令牌，直接拦下
+        }
+        try {
+            Claims claims = Jwts.parser().verifyWith(key).build()
+                    .parseSignedClaims(auth.substring(7))    // 去掉 "Bearer " 前缀
+                    .getPayload();                          // 验签 + 查过期，失败抛 JwtException
+            req.setAttribute("userId", Long.valueOf(claims.getSubject()));
+            return true;
+        } catch (JwtException e) {
+            resp.setStatus(401);
+            return false;
+        }
+    }
+}
+
+// 注册拦截器：登录接口本身必须放行，否则死循环
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new AuthInterceptor(key))
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/auth/login", "/error");
+    }
+}
+
+// 业务代码里取当前用户：Long userId = (Long) request.getAttribute("userId");`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>三个必守的安全底线：</strong>① 密钥绝不进代码库（环境变量注入）；② payload 里只放非敏感字段（Base64 不是加密，任何人可解）；③ 生产建议把过期时间设短（2h）+ 配合刷新令牌机制，登出要做黑名单。入门阶段做到「验签 + 过期」就够，细节进阶再学。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>实战 2：标准分页封装。</strong>公司项目的列表接口永远是 <code>GET /api/todos/page?pageNum=1&amp;pageSize=10</code>。把分页参数、返回结构做成<strong>通用类</strong>，所有模块复用：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'PageQuery.java + PageResultVO.java（通用件）',
+          code: `// 入参：所有列表接口的查询基类，校验防拖库
+@Data
+public class PageQuery {
+    @Min(value = 1, message = "页码从 1 开始")
+    private long pageNum = 1;
+
+    @Max(value = 100, message = "每页最多 100 条")     // 没有上限 = 前端传 100000 一次拖全表
+    private long pageSize = 10;
+}
+
+// 出参：直接对接前端的 rows/total 分页组件结构
+public record PageResultVO<T>(long total, long pageNum, long pageSize, List<T> records) {
+    public static <T> PageResultVO<T> of(Page<T> page) {
+        return new PageResultVO<>(page.getTotal(), page.getCurrent(), page.getSize(), page.getRecords());
+    }
+}
+
+// Service：MP 的 selectPage 两条 SQL（count + 分页查询），插件已在 m06 配好
+@Override
+public PageResultVO<TodoVO> page(TodoPageQuery query) {
+    LambdaQueryWrapper<Todo> w = new LambdaQueryWrapper<Todo>()
+            .like(StrUtil.isNotBlank(query.getTitle()), Todo::getTitle, query.getTitle())   // 非空才拼条件
+            .orderByDesc(Todo::getCreatedAt);
+    Page<Todo> page = todoMapper.selectPage(new Page<>(query.getPageNum(), query.getPageSize()), w);
+    return PageResultVO.of(page.convert(this::toVO));        // PO → VO 转换一气呵成
+}
+
+// Controller：薄薄一层
+@GetMapping("/page")
+public Result<PageResultVO<TodoVO>> page(@Valid TodoPageQuery query) {
+    return Result.ok(todoService.page(query));
+}`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>实战 3：Excel 报表导出（EasyExcel）。</strong>用阿里 EasyExcel（省内存版 POI）：它流式写、不把整张表装进堆。核心是「拿到 response 输出流 → 指定模板类 → 逐行写出」。前端下载直接 <code>window.open('/api/todos/export')</code> 或 a 标签即可：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'TodoExportVO.java + 导出接口',
+          code: `// 导出模板类：@ExcelProperty 决定列名与顺序
+@Data
+public class TodoExportVO {
+    @ExcelProperty("编号")     private Long id;
+    @ExcelProperty("标题")     private String title;
+    @ExcelProperty("状态")     private String status;
+    @ExcelProperty("创建时间") private LocalDateTime createdAt;
+}
+
+// Controller：文件下载不走 Result<T>，直接写响应流
+@GetMapping("/export")
+public void export(HttpServletResponse response) throws IOException {
+    response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setCharacterEncoding("utf-8");
+    String fileName = URLEncoder.encode("待办清单", StandardCharsets.UTF_8).replaceAll("\\\\+", "%20");
+    response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+
+    // 数据量小：一次查出。数据量大（几十万行）：分批查 + 多次 doWrite，堆内存占用恒定
+    List<TodoExportVO> data = todoService.listForExport();
+
+    EasyExcel.write(response.getOutputStream(), TodoExportVO.class)
+             .sheet("待办清单")
+             .doWrite(data);
+}
+
+// 大数据量导出的骨架（记住思路，真遇到再抄）：
+// try (ExcelWriter writer = EasyExcel.write(out, TodoExportVO.class).build()) {
+//     WriteSheet sheet = EasyExcel.writerSheet("待办清单").build();
+//     long lastId = 0;
+//     while (true) {
+//         List<TodoExportVO> batch = todoService.listBatchAfter(lastId, 1000);   // 游标分批（m05-l06 同款思路）
+//         if (batch.isEmpty()) break;
+//         writer.write(batch, sheet);
+//         lastId = 最后一条的 id;
+//     }
+// }`,
+        },
+        {
+          type: 'table',
+          title: '毕业检查清单：对照公司项目的自我验收',
+          head: ['检查项', '达标标准'],
+          rows: [
+            ['分层', 'Controller 全部 ≤ 10 行，Mapper 不出现在 Controller'],
+            ['校验', 'DTO 上有 Bean Validation 注解，Service 里抛 BizException'],
+            ['返回', '全站统一 Result{code,msg,data}，错误码集中在 ErrorCode 枚举'],
+            ['事务', '批量操作在 Service 且 rollbackFor=Exception.class'],
+            ['鉴权', '拦截器统一验 JWT，登录接口在白名单'],
+            ['分页', 'PageQuery 上限 100，PageResultVO 全站复用'],
+            ['导出', '流式写出，大数据量分批查'],
+            ['部署', 'jar 外置配置 + 生产 JVM 参数模板（m08）'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端收尾：</strong>JWT 登录 ≈ 你写的 token + axios 拦截器那一套，只是后端自己也要拦；PageResultVO ≈ 后端把 <code>{total, records}</code> 对齐 antd Table 的 props；EasyExcel 流式导出 ≈ 前端大文件下载走流而不先攒 blob。<strong>学到这里，你在公司项目里应该能独立完成「一个新模块从建表、Mapper、Service 到接口和导出」的完整交付</strong>——这正是本课程承诺的「能上手基础的 Java 项目」。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>给待办清单项目补上 /api/auth/login、拦截器、/page、/export 四个能力。</li>
+<li>用 Postman 验证：无 token 访问列表返回 401，登录后带 Bearer 头返回数据。</li>
+<li>导出的 Excel 能正常打开且列名正确。</li></ul>
+<p>阶段二到此正式毕业。阶段三（Redis / Docker）给这个项目上缓存、装箱交付。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'JWT 的 payload 段可以放哪些内容？',
+          options: [
+            '用户密码的 MD5，方便后续校验',
+            '手机号、身份证等个人信息，方便各接口取用',
+            '只放非敏感字段（如 userId、昵称）；Base64 可解码不是加密，敏感信息会直接泄漏',
+            '随便放，因为 payload 是加密的',
+          ],
+          answer: 2,
+          explain:
+            'JWT 的 Header 和 Payload 是 Base64 编码，任何人可解码查看，只有签名保证不可篡改。放密码或证件号等于明文泄漏。只放 userId 等标识，敏感数据落库查询。',
+        },
+        {
+          q: '分页接口不给 pageSize 设上限，最直接的风险是？',
+          options: [
+            '前端渲染太慢',
+            '一次请求把整张表拖出来：内存、带宽、连接全被打满，等于变相拖库',
+            'MySQL 直接报错拒绝查询',
+            '分页插件失效',
+          ],
+          answer: 1,
+          explain:
+            'pageSize=100000 就是一次全表查询。@Max(100) 这类上限校验是最廉价的防御；配合 @Min(1) 防负数。这也是接口评审必查项。',
+        },
+        {
+          q: '导出 50 万行数据到 Excel，下列哪种做法正确？',
+          options: [
+            '一条 SQL 查出全部 50 万行，EasyExcel 一次 doWrite',
+            '游标/按 id 分批查询（每批 1000），循环多次 write，内存占用恒定',
+            '分 50 次请求让前端拼 Excel',
+            '先把 50 万行全部转成 JSON 存 Redis 再导出',
+          ],
+          answer: 1,
+          explain:
+            '全量加载会把堆内存和连接池同时打爆。分批查询 + 流式写出让内存占用与总数据量无关；EasyExcel 的多次 write 正是为这个场景设计的。',
+        },
+        {
+          q: '拦截器注册后，/api/auth/login 也被拦了导致无法登录。修法是？',
+          options: [
+            '把登录接口改成 GET 请求',
+            '在 excludePathPatterns 里放行登录接口与静态资源，拦截路径收窄到需要鉴权的 /api/**',
+            '关闭拦截器，改在每个接口手动判断',
+            '把 JWT 过期时间设为 24 小时',
+          ],
+          answer: 1,
+          explain:
+            '登录接口本身必须匿名可访问，否则死循环。excludePathPatterns 登录 + /error 等兜底路径，addPathPatterns 收窄到业务前缀，是最小放行面写法。',
         },
       ],
     },

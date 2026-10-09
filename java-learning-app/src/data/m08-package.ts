@@ -144,9 +144,9 @@ export const module: RawModule = {
   phaseName: '阶段二 · 写出完整后端',
   icon: '🚀',
   cover: 'assets/img/m08-package.jpg',
-  minutes: 100,
+  minutes: 135,
   summary:
-    '写完的代码只有跑在别人能访问到的地方才算交付。这一模块带你走完最后一段路：用 Maven 打出可执行的 fat jar，用 profile 区分开发/测试/生产三套配置，再用一份够用的 Linux 命令把 jar 放到服务器上后台运行、看日志、排端口。学完你就拥有了一条完整的「改代码 → 打包 → 上线」流水线。',
+    '写完的代码只有跑在别人能访问到的地方才算交付。这一模块带你走完最后一段路：用 Maven 打出可执行的 fat jar，用 profile 区分开发/测试/生产三套配置，再用一份够用的 Linux 命令把 jar 放到服务器上后台运行、看日志、排端口。收尾的避坑清单专治「没有主清单属性」「配置外置不生效」「服务器乱码」这些上线当天的经典故障。学完你就拥有了一条完整的「改代码 → 打包 → 上线」流水线。',
 
   flashcards: [
     { front: 'Spring Boot 项目打包成可执行 jar 用什么命令？', back: 'mvn clean package（常加 -DskipTests 跳过测试），产物在 target/ 目录下，名字为 artifactId-版本.jar', tag: '命令' },
@@ -159,6 +159,9 @@ export const module: RawModule = {
     { front: 'Windows 上 8080 端口被占用怎么查怎么杀？', back: 'netstat -ano | findstr :8080 找到 PID，再 taskkill /PID 进程号 /F 强制结束', tag: '命令' },
     { front: 'Linux 上让 jar 后台运行并把日志存下来怎么写？', back: 'nohup java -jar app.jar > app.log 2>&1 & ，之后 tail -f app.log 实时看日志', tag: '命令' },
     { front: '服务器能跑但外网访问不了，第一怀疑什么？', back: '云服务器安全组未放行端口，或本机防火墙（firewall-cmd / ufw）没开端口，不是代码问题', tag: '坑点' },
+    { front: 'Linux 上查端口占用并杀进程的命令？', back: 'ss -tlnp | grep :8080（或 lsof -i:8080）拿 PID，kill -9 PID 结束', tag: '命令' },
+    { front: '服务器上看中文日志乱码，两个修法？', back: '启动加 -Dfile.encoding=UTF-8；终端/系统层面 export LANG=zh_CN.UTF-8', tag: '坑点' },
+    { front: 'java 默认堆多大？生产为什么要显式 -Xms -Xmx？', back: '默认约为物理内存 1/4。不显式设置时容器/小内存机器上会 OOM 或浪费，且 -Xms -Xmx 设成同值可避免运行期抖动', tag: '坑点' },
   ],
 
   lessons: [
@@ -705,6 +708,193 @@ systemctl start todo-api`,
           answer: 1,
           explain:
             '<p>systemd 的 Restart=on-failure 负责崩溃自动拉起，systemctl enable 负责开机自启，journalctl 负责统一看日志，是长期运行服务的标准做法。</p>',
+        },
+      ],
+    },
+
+    /* ============ 第 4 课 避坑清单 ============ */
+    {
+      id: 'm08-l04',
+      title: '避坑清单：上线当天翻车 Top 6',
+      minutes: 35,
+      goal: '收拢「打包成功但跑不起来 / 跑起来但不对劲」的 6 个经典故障：没有主清单属性、配置外置不生效、后台运行丢输出、服务器乱码、内存参数缺失、拿旧 jar 上线。每个坑都给出从现象到根因的排查路径。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>「本地明明好好的，一上服务器就不行」是后端新人的成人礼。这一课的 6 个坑按出现频率排序，全部发生在<strong>打包与部署环节</strong>——代码没错，错的是打包方式、启动参数和运行环境。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：java -jar 报 no main manifest attribute。</strong>现象：打包成功，一运行就炸：</p>
+<pre>target/todo-api-1.0.0.jar中没有主清单属性（no main manifest attribute, in todo-api-1.0.0.jar）</pre>
+<p>原因：这只说明打出了一个<strong>普通 jar</strong>（只有你的 class，没有「从哪启动、依赖在哪」的信息）。可执行 jar 需要 spring-boot-maven-plugin 的 <code>repackage</code> 目标把依赖和启动器塞进去。排查两处：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'xml',
+          filename: 'pom.xml 检查两处',
+          code: `<!-- 检查 1：build.plugins 里必须有 spring-boot-maven-plugin -->
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+    </plugin>
+  </plugins>
+</build>
+
+<!-- 检查 2：如果同时配置了 maven-jar-plugin 自己指定 manifest，会覆盖 repackage 的产物 -->
+<!-- 解决：删掉 maven-jar-plugin 的自定义配置，或把 repackage 显式绑定到 package 阶段 -->
+
+<!-- 验证：重新 mvn clean package，看 target 里是否多出一个 *.jar.original -->
+<!-- xxx.jar（fat jar，几十 MB）+ xxx.jar.original（瘦 jar，几百 KB）= repackage 成功 -->`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：配置外置不生效，改了配置像没改。</strong>你已经把 application-prod.yml 放在 jar 旁边，改了端口却还是 8080。先把优先级钉死（从高到低）：<strong>启动命令行参数 &gt; 环境变量 &gt; jar 外置配置 &gt; jar 内配置</strong>。外置不生效的三个高频原因：</p>
+<ul><li><strong>目录不对</strong>：Spring Boot 默认找的是「jar 所在目录」和「jar 同级的 config/ 子目录」。你放到了别的路径还不加 --spring.config.location，等于没放；</li>
+<li><strong>被启动脚本覆盖</strong>：start.sh 里写死了 --server.port=8080，命令行参数优先级最高，你改 yml 当然没用——<strong>先看启动脚本再怀疑配置</strong>；</li>
+<li><strong>文件名不对</strong>：application-prod.yml 需要激活 prod profile 才加载；profile 没激活时它整个被忽略。</li></ul>
+<p>快速定位：启动时加 <code>--debug</code>，或日志里搜「The following profiles are active」确认激活了哪个 profile。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：nohup 后台运行，日志丢了 / 进程莫名退出。</strong>正确姿势的细节都在符号上：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '后台运行正解',
+          code: `# 反面教材 1：重定向顺序写反，2>&1 放在 > app.log 前面 → 错误流没进文件
+nohup java -jar app.jar 2>&1 > app.log &
+
+# 正确写法：先把标准输出指向 app.log，再把 2>&1（错误流跟到标准输出当前指向的地方）
+nohup java -jar app.jar > app.log 2>&1 &
+
+# 反面教材 2：退出终端后进程也死了——用的是会话绑定的 & 而没有 nohup/setsid
+java -jar app.jar &          # SSH 断开时可能被 SIGHUP 杀掉
+
+# 正确姿势（推荐直接用 systemd，见 m08-l03）：临时场景才用 nohup
+nohup java -jar app.jar --spring.profiles.active=prod > /var/log/todo/app.log 2>&1 &
+
+# 验证：ps -ef | grep app.jar 看进程；tail -f app.log 看日志；kill PID 优雅停止`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：服务器上中文乱码 / 时间差 8 小时。</strong>都是「默认值依赖运行环境」惹的祸。乱码：日志输出用了平台默认编码，Linux 默认 C/POSIX 时中文直接问号。时区：jar 里 new Date() 用系统时区，服务器默认 UTC：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '编码与时区双修',
+          code: `# 修乱码：JVM 参数指定编码（Java 18+ 默认 UTF-8，但服务器常是 JDK 17）
+nohup java -Dfile.encoding=UTF-8 -jar app.jar > app.log 2>&1 &
+
+# 修系统层面编码（CentOS / Ubuntu）
+export LANG=zh_CN.UTF-8      # 写进 /etc/profile 或 systemd 的 Environment=
+
+# 修时区：三选一
+timedatectl set-timezone Asia/Shanghai                # 整机
+java -Duser.timezone=Asia/Shanghai -jar app.jar       # JVM 级
+# spring.jackson.time-zone=Asia/Shanghai              # Jackson 序列化级`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：没设堆参数，2G 小服务器直接 OOM。</strong>JVM 默认最大堆 ≈ 物理内存的 1/4。2G 内存的服务器上默认堆只有 ~512MB，看着够用；但如果机器是 16G，JVM 默认拿 4G，再加上系统和其他进程——<strong>容器/小内存机器上必炸</strong>。生产启动参数模板：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '生产启动参数模板',
+          code: `nohup java \\
+  -Xms512m -Xmx512m \\            # 初始堆 = 最大堆：避免运行期扩容抖动
+  -Xss512k \\                      # 每线程栈大小（并发线程多时可调小防 OOM）
+  -Dfile.encoding=UTF-8 \\
+  -Duser.timezone=Asia/Shanghai \\
+  -XX:+HeapDumpOnOutOfMemoryError \\      # OOM 时自动转储，事后能分析
+  -XX:HeapDumpPath=/var/log/todo/ \\
+  -jar todo-api-1.0.0.jar \\      # 2G 内存小服务器的保守起点；观测后调优
+  > app.log 2>&1 &`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：把旧 jar 传上去了。</strong>最冤种的事故：排查两小时，最后发现服务器上跑的还是上周的包。<strong>三步自查：</strong>① 本地打包前先 <code>mvn clean package</code>（clean 清掉上次的 target）；② 对比本地与服务器 jar 的 MD5：<code>certutil -hashfile app.jar MD5</code>（Windows）/ <code>md5sum app.jar</code>（Linux）；③ 启动日志第一行打印版本号（Spring Boot 启动 banner 或自定义日志），一眼确认版本。给工程加一条纪律：<strong>部署脚本里打包、上传、重启、验证四步一条龙，不手工跳步</strong>。</p>`,
+        },
+        {
+          type: 'table',
+          title: '上线故障速查表',
+          head: ['现象', '第一嫌疑', '修法'],
+          rows: [
+            ['no main manifest attribute', '缺 repackage 插件', '补 spring-boot-maven-plugin 后 clean package'],
+            ['改外置配置没反应', '目录错 / 被启动参数覆盖 / profile 未激活', '核对 config/ 位置；查启动脚本；日志确认 active profile'],
+            ['SSH 断开服务就死', '没用 nohup / 未配 systemd', 'nohup ... & 或上 systemd（l03）'],
+            ['日志中文问号', 'file.encoding / LANG', '-Dfile.encoding=UTF-8 + export LANG'],
+            ['时间差 8 小时', '时区默认 UTC', 'timedatectl 或 -Duser.timezone'],
+            ['2G 小机器 OOM', 'JVM 默认堆不合身', '-Xms -Xmx 显式设置 + OOM 转储'],
+            ['修的问题又出现', '跑的是旧 jar', 'clean package + MD5 对比 + 启动日志版本号'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>no main manifest ≈ package.json 没有 main / bin 字段，node 不知道从哪进；配置外置优先级 ≈ Vite 的 define 与 .env 覆盖顺序；nohup 丢日志 ≈ console.log 重定向少写了 stderr（<code>node app.js &gt; log 2&gt;&amp;1</code> 同款符号）。<strong>部署的本质是把「运行环境的默认值」全部换成显式声明</strong>——这一课所有坑都是某个默认值在服务器上和你本地不一样。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>亲手复现一次 no main manifest 并修好。</li>
+<li>写一份自己的「生产启动命令模板」存进项目脚本。</li>
+<li>部署脚本四步一条龙：打包、上传、重启、日志验证。</li></ul>
+<p>到这里，阶段二「写出完整后端」全部完成。阶段三用 Redis 和 Docker 给项目上强度。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'mvn package 成功，java -jar 却报 no main manifest attribute。最可能的原因是？',
+          options: [
+            'JDK 版本不匹配',
+            'pom 里缺少（或被覆盖了）spring-boot-maven-plugin 的 repackage，打出来的是普通瘦 jar',
+            'application.yml 语法错误',
+            '服务器端口被占用',
+          ],
+          answer: 1,
+          explain:
+            '普通 jar 没有 Main-Class 与依赖信息，无法独立运行。补上 spring-boot-maven-plugin 并 clean package，成功后 target 里会出现 fat jar 和 *.jar.original 两个文件。',
+        },
+        {
+          q: 'jar 旁边放了 application-prod.yml 却没生效，启动脚本里带 --server.port=8080。真实原因是？',
+          options: [
+            'yml 文件编码不对',
+            '命令行参数优先级高于外置配置文件，端口被启动脚本里的参数覆盖',
+            'Spring Boot 不支持外置配置',
+            '需要把 yml 改名成 bootstrap.yml',
+          ],
+          answer: 1,
+          explain:
+            '优先级：命令行参数 > 环境变量 > jar 外配置 > jar 内配置。排查「配置不生效」永远先看启动脚本带没带参数，再查文件位置与 profile 是否激活。',
+        },
+        {
+          q: '关于 nohup java -jar app.jar 的日志重定向，写法正确的是？',
+          options: [
+            'nohup java -jar app.jar 2>&1 > app.log &',
+            'nohup java -jar app.jar > app.log 2>&1 &',
+            'nohup java -jar app.jar & log app.log',
+            'java -jar app.jar >> app.log &（前台会话里直接 &）',
+          ],
+          answer: 1,
+          explain:
+            '2>&1 的含义是「错误流跟随标准输出当前指向」，必须放在 > app.log 之后，标准输出先指到文件，错误流才能跟进。写反了错误信息只会打到终端（终端一关就丢）。长期运行建议直接上 systemd。',
+        },
+        {
+          q: '2G 内存的服务器跑 Spring Boot，最稳妥的 JVM 参数是？',
+          options: [
+            '不设参数，让 JVM 自动管理',
+            '-Xms2g -Xmx2g，把 2G 全给 JVM',
+            '-Xms512m -Xmx512m，给系统和元空间留余量，观测后再调',
+            '-Xmx4096m，先超卖了再说',
+          ],
+          answer: 2,
+          explain:
+            '系统本身、元空间、线程栈都要吃内存，2G 机器给 JVM 512M 起步最稳。Xms=Xmx 避免扩容抖动，配 HeapDumpOnOutOfMemoryError 便于事后分析。超卖只会换来内核 OOM killer。',
         },
       ],
     },

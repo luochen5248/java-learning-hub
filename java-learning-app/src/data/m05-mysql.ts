@@ -17,9 +17,9 @@ export const module: RawModule = {
   phaseName: '阶段二 · 写出完整后端',
   icon: '🗄',
   cover: 'assets/img/m05-mysql.jpg',
-  minutes: 150,
+  minutes: 185,
   summary:
-    '后端和前端最大的区别之一：数据要落在另一台（或另一个进程里的）存储服务上。本模块从零装好 MySQL 8，建出贯穿全书的 todo_list 表，手写增删改查与 JOIN 查询，最后用 EXPLAIN 看懂「这条 SQL 为什么慢」——这是数据库入门的真正门槛。',
+    '后端和前端最大的区别之一：数据要落在另一台（或另一个进程里的）存储服务上。本模块从零装好 MySQL 8，建出贯穿全书的 todo_list 表，手写增删改查与 JOIN 查询，最后用 EXPLAIN 看懂「这条 SQL 为什么慢」——这是数据库入门的真正门槛。收尾的避坑清单课讲清隐式转换索引失效、utf8mb4、深分页这些线上高频事故。',
 
   flashcards: [
     { front: '建库时字符集怎么写才对？', back: '建库用 CHARACTER SET utf8mb4；MySQL 自带的 utf8 存不了 emoji。', tag: '命令' },
@@ -32,6 +32,9 @@ export const module: RawModule = {
     { front: 'WHERE 和 HAVING 的分工？', back: 'WHERE 在分组前过滤行（不能用聚合函数）；HAVING 在分组后过滤分组（可以用 COUNT 等）。', tag: '语法' },
     { front: 'EXPLAIN 里 type 从差到好大致怎么排？', back: 'ALL < index < range < ref < eq_ref < const；ALL 且 rows 大要加索引。', tag: '坑点' },
     { front: '联合索引 (a,b,c) 的最左前缀原则？', back: '查询条件从最左列开始连续匹配才生效：a、a+b、a+b+c 都行；直接查 b 或 c 则索引失效。', tag: '语法' },
+    { front: 'phone 是 varchar，WHERE phone = 13800000000 会怎样？', back: '隐式类型转换：把整列转成数字再比，索引直接失效全表扫描。字符串列的值必须加引号。', tag: '坑点' },
+    { front: '翻到第 10 万页为什么巨慢？', back: 'LIMIT 1000000,20 要先扫过前 100 万行再丢弃。改用「上一页最大 id」做游标：WHERE id > 上次末尾 LIMIT 20。', tag: '坑点' },
+    { front: 'UPDATE 误伤全表怎么防？', back: '开启安全更新模式 SET sql_safe_updates = 1，UPDATE/DELETE 不带 WHERE（或非索引条件）直接报错。', tag: '坑点' },
   ],
 
   lessons: [
@@ -908,6 +911,230 @@ SHOW INDEX FROM todo_list;`
           ],
           answer: 1,
           explain: 'JDBC 驱动和 IDEA 都需要明确时区，不指定就会用 UTC 解释 DATETIME，导致写入/读出与本地时间差 8 小时。m06 的 JDBC URL 里同样必须带 serverTimezone=Asia/Shanghai。'
+        },
+      ],
+    },
+
+    /* ============================ m05-l06 避坑 ============================ */
+    {
+      id: 'm05-l06',
+      title: '避坑清单：MySQL 线上事故 Top 6',
+      minutes: 35,
+      goal: '收拢公司项目里最常见的 6 类 MySQL 事故：隐式转换索引失效、utf8mb4 字符集、UPDATE/DELETE 误伤全表、深分页、索引失效场景合集、锁等待。每个坑都有 EXPLAIN 层面的解释，让你不光知道怎么改，还知道为什么。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>前端工程师写 SQL 的第一年，99% 的事故来自「这条查询突然变慢」和「一条 UPDATE 伤了不该伤的数据」。这一课的 6 个坑全部来自真实生产环境，学完后你至少能在事故现场说出一句内行话。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：隐式类型转换，索引悄悄失效（新手事故榜第一名）。</strong>phone 是 varchar 并建了索引，你却写成：</p>
+<pre>SELECT * FROM users WHERE phone = 13800000000;   -- 没加引号！</pre>
+<p>MySQL 不会报错，而是<strong>把 phone 这一列的每个值都转成数字</strong>再比较——相当于对索引列做函数运算，索引直接作废，EXPLAIN 的 type 变成 ALL、rows 等于全表行数。2000 万行的表，一个引号之差，查询从 1 行扫描变成全表扫描。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'sql',
+          filename: '对照实验',
+          code: `-- 反面教材：全表扫描
+EXPLAIN SELECT * FROM todo_list WHERE title = 123;
+-- type=ALL, key=NULL, rows=全表行数
+
+-- 正确写法：类型匹配，走索引
+EXPLAIN SELECT * FROM todo_list WHERE title = '123';
+-- type=ref, key=idx_title
+
+-- 口诀：字符串列的值必须加引号；数字列加了引号通常也能走索引（字符串转数字代价小）
+-- 另一个变体：JOIN 两表字段字符集不一致（utf8 与 utf8mb4 混用），同样触发隐式转换索引失效`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：utf8 与 utf8mb4。</strong>MySQL 的 <code>utf8</code> 是残缺版（最多 3 字节），存不了 emoji 和部分生僻字——用户昵称里一个 😂 入库变成 <code>?</code>。<code>utf8mb4</code> 才是完整的 UTF-8。更阴险的是<strong>两表字符集不一致时 JOIN 会隐式转换、索引失效</strong>。排查命令与修法：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'sql',
+          filename: '字符集排查',
+          code: `-- 看表的字符集与排序规则
+SHOW CREATE TABLE todo_list;
+
+-- 8.0 建表标准姿势（utf8mb4 + 0900 排序规则）
+CREATE TABLE todo_list (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  title VARCHAR(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 老 utf8 表迁移：先加索引备份，再 CONVERT（会锁表，生产挑低峰做）
+ALTER TABLE todo_list CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：UPDATE / DELETE 忘写 WHERE。</strong>前端没有「直接改数据库」的习惯，后端一条手滑 SQL 就是生产事故。三层防护：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'sql',
+          filename: '三层防护',
+          code: `-- 防护 1：本地开发也开安全更新模式，忘写 WHERE 直接报错
+SET sql_safe_updates = 1;
+
+-- 防护 2：改数据前，先用同样的 WHERE 跑一遍 SELECT，肉眼确认命中行数与预期一致
+SELECT id, status FROM todo_list WHERE status = 'open';   -- 假设命中 3 行
+UPDATE todo_list SET status = 'done' WHERE status = 'open';  -- 再改成 UPDATE
+-- 看返回的 affected rows 是否等于刚才 SELECT 的行数
+
+-- 防护 3：事务里改，改完 SELECT 确认再 COMMIT，不对就 ROLLBACK
+START TRANSACTION;
+UPDATE todo_list SET status = 'done' WHERE status = 'open';
+SELECT status, COUNT(*) FROM todo_list GROUP BY status;   -- 确认无误
+COMMIT;   -- 有问题就 ROLLBACK;`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：深分页越来越慢。</strong>前端滚到第 5000 页时接口超时——<code>LIMIT 100000, 20</code> 的执行方式是<strong>先扫过前 100020 行再丢掉前 10 万行</strong>，页码越深扫的越多：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'sql',
+          filename: '游标分页',
+          code: `-- 反面教材：LIMIT 深偏移，扫描量 = 偏移量 + 页大小
+SELECT * FROM todo_list ORDER BY id LIMIT 100000, 20;
+
+-- 修法 1（推荐）：游标分页。前端传「上一页最后一条的 id」，只按索引定位
+SELECT * FROM todo_list WHERE id > 100000 ORDER BY id LIMIT 20;   -- 索引直达，恒定快
+
+-- 修法 2（必须跳页时）：先用覆盖索引拿到 20 个 id，再回表查整行
+SELECT * FROM todo_list t
+JOIN (SELECT id FROM todo_list ORDER BY id LIMIT 100000, 20) tmp ON t.id = tmp.id;`,
+        },
+        {
+          type: 'diagram',
+          caption: '深分页为什么慢：LIMIT 深偏移要扫过并丢弃前 10 万行；游标分页按索引直达目标位置',
+          svg: String.raw`<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arr-m05-pg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64B5F6"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="300" rx="12" fill="#0F1B2D"/>
+  <text x="340" y="32" text-anchor="middle" font-size="16" fill="#E2E8F0">取第 5001 页的 20 行：两条路径的代价</text>
+
+  <text x="340" y="64" text-anchor="middle" font-size="13" fill="#F87171">✗ LIMIT 100000, 20 —— 扫描 100020 行再丢弃前 10 万</text>
+  <rect x="24" y="76" width="596" height="26" rx="6" fill="#2A1620" stroke="#EF4444" stroke-width="1"/>
+  <rect x="24" y="76" width="560" height="26" rx="6" fill="#EF4444" opacity="0.28"/>
+  <text x="304" y="94" text-anchor="middle" font-size="11" fill="#FCA5A5">被扫描然后被丢弃（浪费全部时间）</text>
+  <rect x="588" y="76" width="32" height="26" rx="6" fill="#10B981"/>
+  <text x="604" y="94" text-anchor="middle" font-size="10" fill="#052E1F">要的</text>
+  <text x="340" y="118" text-anchor="middle" font-size="11" fill="#94A3B8">页码越深，红色越长；且行宽 × 10 万次的回表更是雪上加霜</text>
+
+  <text x="340" y="164" text-anchor="middle" font-size="13" fill="#6EE7B7">✓ WHERE id &gt; 100000 LIMIT 20 —— 索引直达，只碰 20 行</text>
+  <rect x="24" y="176" width="596" height="26" rx="6" fill="#12261E" stroke="#10B981" stroke-width="1"/>
+  <rect x="586" y="176" width="34" height="26" rx="6" fill="#10B981"/>
+  <text x="603" y="194" text-anchor="middle" font-size="10" fill="#05271C">要的</text>
+  <text x="300" y="194" text-anchor="middle" font-size="11" fill="#6EE7B7">B+ 树二分定位：一步跳到 id=100001</text>
+
+  <line x1="24" y1="216" x2="586" y2="216" stroke="#64B5F6" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arr-m05-pg)"/>
+  <text x="300" y="232" text-anchor="middle" font-size="10.5" fill="#94A3B8">索引直接跳到目标位置，时间恒定</text>
+
+  <rect x="24" y="248" width="632" height="36" rx="8" fill="#16223A" stroke="#3B82F6" stroke-width="1"/>
+  <text x="40" y="271" font-size="11.5" fill="#93C5FD">接口设计：信息流 / 聊天记录用游标（传上一页末尾 id）；管理后台要跳页才用「先取 id 再回表」修法</text>
+</svg>`,
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端：</strong>游标分页就是 GitHub API 的 <code>since_id</code> 模式，比传统的 <code>page/size</code> 更适合无限滚动列表。给前端同学的接口设计建议：管理后台要跳页用修法 2；信息流、聊天记录这类顺序翻页场景直接游标。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：索引失效场景合集。</strong>建了索引不代表用得上。遇到「EXPLAIN type=ALL」按这张表逐条自查：</p>`,
+        },
+        {
+          type: 'table',
+          title: '索引失效自查表',
+          head: ['写法', '失效原因', '正确写法'],
+          rows: [
+            ['WHERE DATE(created_at) = 今天', '对索引列套函数', 'WHERE created_at >= 今天0点 AND created_at &lt; 明天0点'],
+            ["WHERE phone = 13800000000", '隐式类型转换', "WHERE phone = '13800000000'（加引号）"],
+            ["WHERE title LIKE '%待办'", '前导通配符无法定位前缀', "LIKE '待办%'；必须两边模糊时用全文索引或 ES"],
+            ['WHERE a = 1 OR c = 2（c 无索引）', 'OR 一边无索引整体放弃', 'UNION 两条各自走索引的查询'],
+            ['联合索引 (a,b) 只查 b', '违背最左前缀', '补上 a 条件或调换索引列顺序'],
+            ['WHERE created_at + INTERVAL 1 DAY &gt; NOW()', '列参与运算', '把运算移到常量侧：WHERE created_at &gt; NOW() - INTERVAL 1 DAY'],
+          ],
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：锁等待与「突然卡住」。</strong>现象：一条很简单的 UPDATE 执行几十秒后报 <code>Lock wait timeout exceeded</code>。原因几乎都是<strong>另一个长事务持着这行锁没释放</strong>（常见：一个没提交的事务在 IDEA 里开着、或慢 SQL 拖着大事务）。排查三连：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'sql',
+          filename: '锁排查三连',
+          code: `-- 1) 看当前运行中的事务（8.0）与等待
+SELECT * FROM information_schema.INNODB_TRX;         -- trx_started 早的就是长事务
+SELECT * FROM performance_schema.data_lock_waits;    -- 谁在等谁（8.0）
+
+-- 2) 杀掉肇事连接
+KILL 线程id;   -- 来自 INNODB_TRX 的 trx_mysql_thread_id
+
+-- 预防：事务里不要夹 HTTP 调用 / 大量计算；平时只在 IDE 提交短事务`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>遇到慢 SQL 第一反应跑 EXPLAIN，先看 type 和 rows。</li>
+<li>字符串值加引号、索引列不套函数、LIKE 不以前导 % 开头。</li>
+<li>改数据三防护：安全模式、先 SELECT、事务包裹。</li>
+<li>列表接口设计时区分游标分页与跳页分页。</li></ul>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'varchar 列 phone 建了索引，WHERE phone = 13800000000（无引号）导致全表扫描的原因是？',
+          options: [
+            '索引损坏需要重建',
+            '隐式类型转换：MySQL 把索引列的每个值转成数字再比较，等效于对列套函数，索引失效',
+            'phone 列太长不能建索引',
+            'MySQL 8.0 的已知 bug',
+          ],
+          answer: 1,
+          explain:
+            '字符串与数字比较时，MySQL 把字符串列转成数字，索引有序性被破坏，优化器退回全表扫描。修法是值加引号。EXPLAIN 里表现为 type=ALL、key=NULL。',
+        },
+        {
+          q: '关于 LIMIT 100000, 20 的深分页，说法正确的是？',
+          options: [
+            'MySQL 会直接跳到第 100001 行，速度与页码无关',
+            '它会扫描前 100020 行然后丢弃前 10 万行，页码越深越慢',
+            '加索引后深分页就完全没问题了',
+            'LIMIT 的偏移量上限是 10 万',
+          ],
+          answer: 1,
+          explain:
+            'LIMIT offset,size 的代价是扫描 offset+size 行。顺序翻页用游标（WHERE id > 上一页末尾 LIMIT 20），必须跳页时用覆盖索引先取 id 再回表。',
+        },
+        {
+          q: '下列哪种写法会让 (status, created_at) 上的索引失效？',
+          options: [
+            "WHERE status = 'open' AND created_at > '2026-01-01'",
+            "WHERE DATE(created_at) = '2026-10-09'",
+            'ORDER BY created_at LIMIT 10',
+            "WHERE status = 'open'",
+          ],
+          answer: 1,
+          explain:
+            '对索引列套函数（DATE()）会破坏索引有序性导致失效，应改写成范围条件 created_at >= 当天0点 AND < 明天0点。其余三种都能正常用索引。',
+        },
+        {
+          q: 'UPDATE 执行 30 秒后报 Lock wait timeout exceeded，最可能的原因是？',
+          options: [
+            '磁盘满了',
+            '另一个长事务持有该行锁未提交（比如 IDE 里开着没 commit 的事务）',
+            '字段类型不匹配',
+            '索引建多了',
+          ],
+          answer: 1,
+          explain:
+            'InnoDB 行锁由事务持有到提交/回滚。长事务（未提交的编辑窗口、事务里夹慢操作）会堵住后续改动。查 information_schema.INNODB_TRX 找 trx_started 最早的事务，必要时 KILL。',
         },
       ],
     },

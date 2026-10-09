@@ -31,15 +31,15 @@ export function phaseOf(id?: string): Phase {
 
 export const MODULE_META: ModuleMeta[] = [
   { id: 'm01', file: 'm01-idea.ts', phase: 'phase1', icon: '🛠', title: 'IntelliJ IDEA 使用', subtitle: '把 VSCode 的手感迁移到 IDEA', cover: 'assets/img/m01-idea.jpg', minutes: 90 },
-  { id: 'm02', file: 'm02-maven.ts', phase: 'phase1', icon: '📦', title: 'Maven 依赖管理', subtitle: '后端世界的 npm + vite', cover: 'assets/img/m02-maven.jpg', minutes: 110 },
-  { id: 'm03', file: 'm03-java.ts', phase: 'phase1', icon: '☕', title: 'Java 够用语法', subtitle: '对照 TypeScript 学，只学用得上的', cover: 'assets/img/m03-java.jpg', minutes: 160 },
-  { id: 'm04', file: 'm04-springboot.ts', phase: 'phase2', icon: '🍃', title: 'Spring Boot 起步', subtitle: 'IoC/DI 与第一个 Web 接口', cover: 'assets/img/m04-springboot.jpg', minutes: 120 },
-  { id: 'm05', file: 'm05-mysql.ts', phase: 'phase2', icon: '🗄', title: 'MySQL 数据库', subtitle: '建库建表与 CRUD、JOIN 查询', cover: 'assets/img/m05-mysql.jpg', minutes: 150 },
-  { id: 'm06', file: 'm06-mybatis.ts', phase: 'phase2', icon: '🔌', title: '连接数据库 · MyBatis-Plus', subtitle: '连接池原理与条件构造器', cover: 'assets/img/m06-mybatis.jpg', minutes: 120 },
-  { id: 'm07', file: 'm07-layered.ts', phase: 'phase2', icon: '🧱', title: '业务分层', subtitle: '三层架构、DTO/VO、事务', cover: 'assets/img/m07-layered.jpg', minutes: 130 },
-  { id: 'm08', file: 'm08-package.ts', phase: 'phase2', icon: '🚀', title: '打包与部署', subtitle: '打 jar 包、多环境、Linux 命令', cover: 'assets/img/m08-package.jpg', minutes: 100 },
-  { id: 'm09', file: 'm09-redis.ts', phase: 'phase3', icon: '⚡', title: 'Redis 缓存', subtitle: '五大数据类型与缓存三兄弟', cover: 'assets/img/m09-redis.jpg', minutes: 100 },
-  { id: 'm10', file: 'm10-docker.ts', phase: 'phase3', icon: '🐳', title: 'Docker 容器化', subtitle: '镜像、Dockerfile、compose 一键部署', cover: 'assets/img/m10-docker.jpg', minutes: 100 },
+  { id: 'm02', file: 'm02-maven.ts', phase: 'phase1', icon: '📦', title: 'Maven 依赖管理', subtitle: '后端世界的 npm + vite', cover: 'assets/img/m02-maven.jpg', minutes: 140 },
+  { id: 'm03', file: 'm03-java.ts', phase: 'phase1', icon: '☕', title: 'Java 够用语法', subtitle: '对照 TypeScript 学，只学用得上的', cover: 'assets/img/m03-java.jpg', minutes: 215 },
+  { id: 'm04', file: 'm04-springboot.ts', phase: 'phase2', icon: '🍃', title: 'Spring Boot 起步', subtitle: 'IoC/DI 与第一个 Web 接口', cover: 'assets/img/m04-springboot.jpg', minutes: 150 },
+  { id: 'm05', file: 'm05-mysql.ts', phase: 'phase2', icon: '🗄', title: 'MySQL 数据库', subtitle: '建库建表与 CRUD、JOIN 查询', cover: 'assets/img/m05-mysql.jpg', minutes: 185 },
+  { id: 'm06', file: 'm06-mybatis.ts', phase: 'phase2', icon: '🔌', title: '连接数据库 · MyBatis-Plus', subtitle: '连接池原理与条件构造器', cover: 'assets/img/m06-mybatis.jpg', minutes: 150 },
+  { id: 'm07', file: 'm07-layered.ts', phase: 'phase2', icon: '🧱', title: '业务分层', subtitle: '三层架构、DTO/VO、事务', cover: 'assets/img/m07-layered.jpg', minutes: 260 },
+  { id: 'm08', file: 'm08-package.ts', phase: 'phase2', icon: '🚀', title: '打包与部署', subtitle: '打 jar 包、多环境、Linux 命令', cover: 'assets/img/m08-package.jpg', minutes: 135 },
+  { id: 'm09', file: 'm09-redis.ts', phase: 'phase3', icon: '⚡', title: 'Redis 缓存', subtitle: '五大数据类型与缓存三兄弟', cover: 'assets/img/m09-redis.jpg', minutes: 145 },
+  { id: 'm10', file: 'm10-docker.ts', phase: 'phase3', icon: '🐳', title: 'Docker 容器化', subtitle: '镜像、Dockerfile、compose 一键部署', cover: 'assets/img/m10-docker.jpg', minutes: 145 },
 ]
 
 /* ---------------- 加载 ---------------- */

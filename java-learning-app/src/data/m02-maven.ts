@@ -16,9 +16,9 @@ export const module: RawModule = {
   phaseName: '阶段一 · 快速上手',
   icon: '📦',
   cover: 'assets/img/m02-maven.jpg',
-  minutes: 110,
+  minutes: 140,
   summary:
-    'Maven 是 Java 世界的构建与依赖管理工具，几乎等价于「npm + vite 打包命令」。这一模块用你已经熟悉的 npm 心智去对齐它：pom.xml 就是 package.json，本地仓库就是 node_modules，mvn package 就是 npm run build。学完你能自己搭一个可构建、可打包、依赖不报错的 Java 项目。',
+    'Maven 是 Java 世界的构建与依赖管理工具，几乎等价于「npm + vite 打包命令」。这一模块用你已经熟悉的 npm 心智去对齐它：pom.xml 就是 package.json，本地仓库就是 node_modules，mvn package 就是 npm run build。最后用一课避坑清单收拢依赖冲突、SNAPSHOT 快照、仓库缓存损坏等公司项目里的高频翻车点。学完你能自己搭一个可构建、可打包、依赖不报错的 Java 项目。',
 
   /* ---------------- 闪卡 10 张 ---------------- */
   flashcards: [
@@ -32,6 +32,9 @@ export const module: RawModule = {
     { front: '查看依赖树、排查版本冲突的命令？', back: 'mvn dependency:tree，IDEA Maven 面板也有依赖图', tag: '命令' },
     { front: 'scope 为 test 的依赖特点？', back: '只在编译与运行测试代码时生效，打包不进产物，等价 devDependencies', tag: '依赖' },
     { front: 'Maven 解决依赖冲突的两条原则？', back: '路径最近优先；路径相同时先声明者优先。也可 exclusions 排除', tag: '坑点' },
+    { front: '运行时抛 NoSuchMethodError / ClassNotFoundException 先怀疑什么？', back: '依赖冲突。mvn dependency:tree -Dverbose 查同库多版本，用父 pom 的 dependencyManagement 统一锁版本', tag: '坑点' },
+    { front: 'SNAPSHOT 快照依赖为什么危险？', back: '同一个版本号内容会变，今天能跑明天报错。生产发布必须用固定版本号', tag: '坑点' },
+    { front: 'Maven 下载依赖一直失败，先检查什么？', back: '本地仓库里的 .lastUpdated 残留文件——上次下载中断的标记，删掉它再 mvn -U 强制刷新', tag: '坑点' },
   ],
 
   lessons: [
@@ -658,6 +661,189 @@ java -jar target\hello-maven-1.0-SNAPSHOT.jar --spring.profiles.active=dev`,
           answer: 1,
           explain:
             '镜像仓库的内容与中央仓库是一致的，纯粹是网络速度问题。配置 mirrorOf 为 * 之后，所有仓库请求都改走国内节点。',
+        },
+      ],
+    },
+
+    /* ============================ L05 ============================ */
+    {
+      id: 'm02-l05',
+      title: '避坑清单：Maven 翻车 Top 6',
+      minutes: 30,
+      goal: '收拢公司项目里最高频的 6 个 Maven 坑：依赖冲突、SNAPSHOT、scope 误用、仓库缓存损坏、镜像劫持、JDK 错位。每个坑按「现象 → 原因 → 修法」给出可执行的排查动作。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>前面四课讲的是「怎么用」，这一课讲「炸了怎么办」。这 6 个坑覆盖了新人接手 Java 项目第一周最可能遇到的故障——尤其是<strong>依赖冲突</strong>，它几乎是所有 <code>NoSuchMethodError</code> / <code>ClassNotFoundException</code> 的第一嫌疑人。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：依赖冲突（出现率第一）。</strong>你的项目依赖 A 和 B，A 要 commons-lang:3.12，B 要 3.5——Maven <strong>不会真的引入两个版本，只会留下一个</strong>。仲裁规则：路径最短优先；深度相同则先声明优先。被淘汰版本里的类如果恰好在运行期被用到，就炸：</p>
+<ul><li><code>java.lang.NoSuchMethodError</code>——类在、方法没了（旧版本被选中）；</li>
+<li><code>java.lang.NoClassDefFoundError</code>——整个类都不在。</li></ul>
+<p>最阴险的是：<strong>编译期没事，启动或运行到某条路径才炸</strong>，因为编译用的是你直接声明的版本。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '排查三步',
+          code: `# 第一步：看依赖树，verbose 模式会标出冲突与被忽略的版本
+mvn dependency:tree -Dverbose
+
+# 只盯可疑的库（Windows 用 findstr，Mac/Linux 用 grep）
+mvn dependency:tree -Dverbose -Dincludes=com.google.guava:guava
+
+# 第二步：在父 pom 的 dependencyManagement 里一锤定音（推荐，别到处写 exclusion）
+# <dependencyManagement> 只是「预定义版本」，不会真的引入依赖；
+# 一旦这个库出现在依赖树任何位置，都会被强制统一成这里声明的版本
+# <dependencyManagement>
+#   <dependencies>
+#     <dependency>
+#       <groupId>com.google.guava</groupId>
+#       <artifactId>guava</artifactId>
+#       <version>33.0.0-jre</version>
+#     </dependency>
+#   </dependencies>
+# </dependencyManagement>
+
+# 第三步：改完再跑一次依赖树确认只剩一个版本
+mvn dependency:tree -Dincludes=com.google.guava:guava`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>为什么推荐 dependencyManagement 而不是到处写 exclusion？</strong>exclusion 要在<strong>每一个</strong>引入冲突库的依赖上写一遍，漏一处就复发，而且新人看不懂这段历史。dependencyManagement 在父 pom 写一处全局生效，优先级高于一切仲裁规则。IDEA 里打开 pom 底部的「Dependency Analyzer」标签页，可以图形化看冲突，比命令行直观。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：SNAPSHOT 快照依赖。</strong><code>1.0-SNAPSHOT</code> 的含义是「这个版本还没定稿，内容随时会变」——Maven 会定期去远端检查有没有新快照。后果：同一个版本号，今天和昨天下载到的 jar 内容不同，生产环境行为不可复现。公司项目口径：<strong>自己发布的包用固定版本号（1.0.0），只在内部联调期临时用 SNAPSHOT</strong>；看到别人的依赖带 SNAPSHOT 后缀，先问清楚什么时候转正。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：scope 用错，运行时类找不到。</strong>scope 决定依赖出现在哪个阶段。最高频事故是把<strong>运行时需要的库</strong>（MySQL 驱动、redis 客户端）声明成 <code>test</code> 或 <code>provided</code>——编译期一切正常（test/provided 都参与编译），一启动就 <code>ClassNotFoundException: com.mysql.cj.jdbc.Driver</code>。</p>`,
+        },
+        {
+          type: 'table',
+          title: 'scope 误用速查',
+          head: ['scope', '参与编译', '打进 jar', '典型误用后果'],
+          rows: [
+            ['compile（默认）', '是', '是', '无'],
+            ['provided', '是', '否', '运行时类缺失，如误把驱动设为 provided'],
+            ['runtime', '否', '是', '代码里 import 不到，但运行期可用（驱动推荐写法之一）'],
+            ['test', '否', '否', '运行时类缺失，如误把驱动设成 test'],
+            ['system', '是', '否', '依赖本地路径 jar，别人机器必挂，禁用'],
+          ],
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：本地仓库缓存损坏，怎么刷都拉不下来。</strong>网络中断时 Maven 会在本地仓库留下 <code>*.lastUpdated</code> 标记文件，之后它认为「这个版本下载过了但失败」，直接拒绝重试。现象是：同事那边好好的，你这边死活 <code>Could not resolve dependencies</code>：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '清理缓存重试',
+          code: `# 方法一：强制刷新，忽略失败标记
+mvn clean install -U
+
+# 方法二：手动删残留标记（Windows PowerShell，进本地仓库目录后执行）
+cd $env:USERPROFILE\\.m2\\repository
+Get-ChildItem -Recurse -Filter *.lastUpdated | Remove-Item -Force
+
+# 方法三：整个目录删掉让它重下（最后手段）
+Remove-Item -Recurse -Force $env:USERPROFILE\\.m2\\repository\\com\\example\\xxx`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：settings.xml 的 mirrorOf 把私服也劫走了。</strong>公司项目通常配内部私服（Nexus/Artifactory）托管二方包。如果你为了下载快把镜像配成 <code>&lt;mirrorOf&gt;*&lt;/mirrorOf&gt;</code>，<strong>所有仓库请求（包括公司私服）都会被劫到国内镜像</strong>，内部包永远 404。公司项目里镜像要么删掉、要么把私服排除：<code>&lt;mirrorOf&gt;*,!internal-repo&lt;/mirrorOf&gt;</code>（internal-repo 是私服在 pom 里的 id）。反过来，报 <code>Could not find artifact com.company:xxx</code> 时第一个要检查的就是 settings.xml 有没有把私服放行。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：mvn 用的 JDK 不是你以为的那个。</strong>命令行里 <code>java -version</code> 是 17，但 mvn 构建用的 JDK 由 <code>JAVA_HOME</code> 决定，两者经常不一致。现象是 <code>invalid target release: 17</code>（mvn 用着 JDK 11 编译 target 17 的项目）或中文注释乱码。检查顺序：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '核对 JDK',
+          code: `# 看 mvn 实际用的 JDK（第一行 Java version 就是）
+mvn -version
+
+# 不一致就改 JAVA_HOME（PowerShell 临时改，仅当前窗口生效）
+$env:JAVA_HOME = "C:\\Program Files\\Java\\jdk-17"
+
+# IDEA 里另有一处：Settings → Build Tools → Maven → Runner → JRE，也要选对`,
+        },
+        {
+          type: 'table',
+          title: 'Maven 报错速查表（建议截图保存）',
+          head: ['报错 / 现象', '第一嫌疑', '修法'],
+          rows: [
+            ['NoSuchMethodError / NoClassDefFoundError', '依赖冲突', 'dependency:tree -Dverbose + dependencyManagement 锁版本'],
+            ['Could not resolve dependencies', '缓存损坏 / 私服不通', '删 .lastUpdated 后 mvn -U；查 settings.xml 私服配置'],
+            ['Could not find artifact com.company:xxx', '私服被镜像劫走', 'mirrorOf 排除私服 id'],
+            ['invalid target release: 17', 'mvn 用错 JDK', '核对 mvn -version 与 JAVA_HOME'],
+            ['启动时驱动类找不到', 'scope 误用', '驱动 scope 改回 compile / runtime'],
+            ['同事能打包你不能', '本地差异', '先 diff settings.xml 和本地仓库缓存，再问网络'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>依赖冲突 ≈ node_modules 里同时存在两个版本的包（pnpm 会隔离，npm 扁平化后也会仲裁）；dependencyManagement ≈ 根 package.json 的 resolutions/overrides；SNAPSHOT ≈ <code>next</code> / canary 标签，天天变；.lastUpdated 缓存损坏 ≈ npm 缓存坏了要 <code>npm cache clean</code>。心智完全对得上，只是 Maven 的仲裁规则更古老、报错更隐晦。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>遇到 NoSuchMethodError 能条件反射跑 <code>mvn dependency:tree -Dverbose</code>。</li>
+<li>知道 dependencyManagement 与 exclusion 的取舍。</li>
+<li>能自己清理 .lastUpdated 缓存、核对 mvn 使用的 JDK。</li></ul>`,
+        },
+      ],
+      quiz: [
+        {
+          q: '项目运行时抛 NoSuchMethodError，编译期却一切正常。最可能的 cause 与第一排查动作是？',
+          options: [
+            'JDK 版本太低 → 升级 JDK',
+            '依赖冲突：运行期加载了另一个版本的类 → mvn dependency:tree -Dverbose',
+            '代码有语法错误 → 重新编译',
+            'settings.xml 没配镜像 → 先换源',
+          ],
+          answer: 1,
+          explain:
+            '编译期正常说明「你直接引用的版本」有这个方法；运行期炸说明 classpath 上实际生效的是另一个（更旧的）版本。用 verbose 依赖树找出同库多版本，再用 dependencyManagement 统一。',
+        },
+        {
+          q: '关于 SNAPSHOT 快照依赖，说法正确的是？',
+          options: [
+            'SNAPSHOT 版本号固定，内容也固定，可放心用于生产',
+            'SNAPSHOT 内容会随远端更新而变化，生产发布必须用固定版本号',
+            'SNAPSHOT 下载更快，适合 CI 环境',
+            'SNAPSHOT 与 RELEASE 的唯一区别是命名习惯',
+          ],
+          answer: 1,
+          explain:
+            'SNAPSHOT 表示「未定稿」，Maven 会定期拉取远端最新快照，同一版本号内容可能不同，导致生产行为不可复现。内部联调可临时使用，对外发布一律固定版本。',
+        },
+        {
+          q: '把 MySQL 驱动的 scope 错写成 test，启动应用时会怎样？',
+          options: [
+            '编译报错，ClassNotFound',
+            '编译正常，启动建数据源时抛 ClassNotFoundException: com.mysql.cj.jdbc.Driver',
+            '完全没影响，test 只影响测试',
+            '打包直接失败',
+          ],
+          answer: 1,
+          explain:
+            'test scope 参与测试编译但打包不进产物，所以主代码编译没问题，运行时 classpath 上没有驱动类。数据源初始化发生在启动期，于是启动炸。驱动 scope 用默认 compile 或 runtime。',
+        },
+        {
+          q: '同事项目能正常拉取公司内部私服的包，你这边一直 Could not find artifact。先检查什么？',
+          options: [
+            '重装 Maven',
+            '你的 settings.xml 里 mirrorOf 是否为 *，把私服请求劫持到了公共镜像',
+            '让同事把 jar 发给你手动 install',
+            '把私服地址写进 pom 的 dependencyManagement',
+          ],
+          answer: 1,
+          explain:
+            'mirrorOf * 会劫持所有仓库请求，包括公司私服，内部包在公共镜像上当然不存在。修法是排除私服 id（*,!internal-repo）或删掉镜像配置。dependencyManagement 只管版本，不管仓库地址。',
         },
       ],
     },

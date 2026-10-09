@@ -197,9 +197,9 @@ export const module: RawModule = {
   phaseName: '阶段三 · 原理补课与进阶',
   icon: '⚡',
   cover: 'assets/img/m09-redis.jpg',
-  minutes: 100,
+  minutes: 145,
   summary:
-    '接口一旦上线，数据库就是最贵的那一环。这一模块给「待办清单 API」加一层 Redis 7 缓存：先在 Windows 上用 Docker 把它跑起来，用 redis-cli 认识 String/Hash/List/Set/ZSet 五种数据类型和 TTL；再用 spring-boot-starter-data-redis 接入 Spring Boot 3.2（注意配置前缀是 spring.data.redis），把待办列表和详情放进缓存；最后正面解决缓存穿透、击穿、雪崩三个经典问题，并守住「缓存与数据库一致」这条底线。',
+    '接口一旦上线，数据库就是最贵的那一环。这一模块给「待办清单 API」加一层 Redis 7 缓存：先在 Windows 上用 Docker 把它跑起来，用 redis-cli 认识 String/Hash/List/Set/ZSet 五种数据类型和 TTL；再用 spring-boot-starter-data-redis 接入 Spring Boot 3.2（注意配置前缀是 spring.data.redis），把待办列表和详情放进缓存；然后正面解决缓存穿透、击穿、雪崩三个经典问题并守住「缓存与数据库一致」这条底线；收尾的避坑清单处理序列化乱码、TTL 忘设、KEYS 阻塞、BigKey 这些运维视角的故障。',
 
   flashcards: [
     { front: 'Redis 的五大数据类型是哪五个？', back: 'String（字符串）、Hash（哈希）、List（列表）、Set（集合）、ZSet（有序集合）', tag: '概念' },
@@ -212,6 +212,9 @@ export const module: RawModule = {
     { front: '缓存更新时，先改库还是先删缓存？', back: '先更新数据库，再删除缓存（Cache Aside）。先删缓存再改库，并发下旧数据可能被回写进去', tag: '坑点' },
     { front: '缓存穿透、击穿、雪崩怎么一句话区分？', back: '穿透=查根本不存在的 key；击穿=一个热点 key 恰好过期；雪崩=大批 key 在同一时刻集体过期', tag: '概念' },
     { front: '@Cacheable 写了却不生效，常见原因？', back: '同类内部 this.xxx() 自调用绕过 AOP 代理；方法不是 public；启动类忘了加 @EnableCaching', tag: '坑点' },
+    { front: '线上为什么禁止 KEYS * ？', back: 'KEYS 是 O(N) 全库扫描并阻塞单线程的 Redis，百万 key 期间所有请求排队。遍历一律用 SCAN（游标分批、不阻塞）', tag: '坑点' },
+    { front: '什么是 BigKey？怎么防？', back: '单个 key 的 value 过大（百 KB~MB 级），读写时占满网卡、阻塞其他命令。防法：大 JSON 拆 Hash 按字段读写，或切片分 key', tag: '坑点' },
+    { front: '给缓存 key 设 TTL 的两条纪律？', back: '1) 必须设：没 TTL 的 key 内存只增不减，等 OOM；2) 加随机：基础TTL + random(0,300)s，防止同秒集体过期（雪崩）', tag: '坑点' },
   ],
 
   lessons: [
@@ -804,7 +807,241 @@ redis.opsForValue().set(key, json, Duration.ofSeconds(ttl));`,
           ],
           answer: 1,
           explain:
-            '<p>雪崩的成因是"大批 key 同一时刻过期"。给 TTL 加上随机值（如 基础TTL + random(0,300)s）可以让过期时间自然分散，从根上避免集中失效。</p>',
+            '<p>缓存雪崩的成因是“大批 key 同一时刻过期”。给 TTL 加上随机值（如 基础TTL + random(0,300)s）可以让过期时间自然分散，从根上避免集中失效。</p>',
+        },
+      ],
+    },
+
+    /* ============ 第 4 课 避坑清单 ============ */
+    {
+      id: 'm09-l04',
+      title: '避坑清单：Redis 运维事故 Top 6',
+      minutes: 30,
+      goal: '缓存三兄弟之外的事故清单：序列化乱码、TTL 忘设导致内存膨胀、KEYS 阻塞生产、BigKey 拖垮网卡、空值缓存被滥用、@Cacheable 自调用失效。学完能看懂 Redis 的运维告警。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>l03 讲的是缓存架构层面的三兄弟，这一课讲<strong>用 Redis 时最容易犯的手误级错误</strong>。它们共同的特点：开发环境永远发现不了，上线后以「Redis 内存暴涨」「接口偶发卡顿」的形式出现。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：RedisTemplate 存出来的东西是乱码。</strong>用 redis-cli 一看，key 是 <code>\xac\xed\x00\x05t\x00\x05todo:1</code> 这样的字节串——这是 <strong>RedisTemplate 默认的 JDK 序列化</strong>（类名+二进制），人看不懂、别的服务也不认。修法是统一换成 String key + JSON value：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'RedisConfig.java（推荐配置）',
+          code: `@Configuration
+public class RedisConfig {
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> tpl = new RedisTemplate<>();
+        tpl.setConnectionFactory(factory);
+
+        // key 与 hashKey 用字符串序列化：redis-cli 里看得见、可搜索
+        StringRedisSerializer keySer = new StringRedisSerializer();
+        // value 用 GenericJackson2Json：自动带类型信息，反序列化不用手动传类
+        GenericJackson2JsonRedisSerializer valSer = new GenericJackson2JsonRedisSerializer();
+
+        tpl.setKeySerializer(keySer);
+        tpl.setHashKeySerializer(keySer);
+        tpl.setValueSerializer(valSer);
+        tpl.setHashValueSerializer(valSer);
+        tpl.afterPropertiesSet();
+        return tpl;
+    }
+}
+
+// 更省事的替代：直接注入 StringRedisTemplate（key 和 value 都是字符串）
+// 自己用 ObjectMapper 手动转 JSON，语义最清晰，公司项目里两者都常见`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>乱码的连带伤害：</strong>JDK 序列化还要求被缓存类实现 Serializable，改类结构后旧缓存反序列化直接炸（InvalidClassException）。JSON 序列化没有这个问题。换了序列化器后，<strong>旧的乱码 key 必须清掉</strong>（FLUSHDB 或按前缀删），否则读出来解析失败。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：TTL 忘设，内存只涨不跌。</strong>set 的时候忘了带过期时间，这些 key 永远躺在内存里。日积月累内存打满，Redis 开始<strong>按淘汰策略丢数据</strong>（默认 noeviction 直接报错，业务写入全挂）。两条纪律：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: 'TTL 纪律与自查',
+          code: `# 自查 1：没有 TTL 的 key 有多少（生产慎用 KEYS，见坑 3；自查用 SCAN）
+redis-cli --scan | head -100        # 人工抽查
+redis-cli DBSIZE                    # 总 key 数
+
+# 自查 2：看内存水位与淘汰策略
+redis-cli INFO memory | grep -E "used_memory_human|maxmemory_human|maxmemory_policy"
+
+# 纪律 1：所有 setx / set 带 EX；Java 里用 set(key, value, Duration.ofMinutes(30))
+# 纪律 2：兜底配置淘汰策略（缓存场景用 allkeys-lru：内存满了淘汰最久没用的）
+# redis.conf 或启动参数：
+#   maxmemory 768mb
+#   maxmemory-policy allkeys-lru`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：KEYS 命令阻塞生产。</strong><code>KEYS pattern</code> 是 O(N) 全库扫描，而 Redis 是<strong>单线程</strong>——百万 key 的库执行 KEYS，期间所有读写请求全部排队，看起来就像「Redis 突然卡死」。这条是运维红线：<strong>生产环境永远不用 KEYS</strong>，遍历用 SCAN：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: 'SCAN 游标遍历',
+          code: `// SCAN 用游标分批拿，每批几百个，主线程不会被长时间占用
+try (Cursor<String> cursor = redisTemplate.scan(
+        ScanOptions.scanOptions().match("todo:*").count(500).build())) {
+    while (cursor.hasNext()) {
+        String key = cursor.next();
+        // 逐批处理，比如按前缀批量删除过期缓存
+    }
+}
+
+// redis-cli 里等价写法（反复执行直到游标回到 0）
+// SCAN 0 MATCH todo:* COUNT 500`,
+        },
+        {
+          type: 'diagram',
+          caption: 'KEYS 一次吞下全部扫描（单线程被独占）vs SCAN 分批小步走（每批之间穿插处理别的请求）',
+          svg: String.raw`<svg viewBox="0 0 680 310" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arr-m09-kk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64B5F6"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="310" rx="12" fill="#0F1B2D"/>
+  <text x="340" y="30" text-anchor="middle" font-size="16" fill="#E2E8F0">单线程的 Redis：一条慢命令 = 一条阻塞的管道</text>
+
+  <text x="340" y="60" text-anchor="middle" font-size="13" fill="#F87171">✗ KEYS todo:* —— 100 万 key 一口气扫完</text>
+  <rect x="40" y="70" width="600" height="22" rx="6" fill="#2A1620" stroke="#EF4444" stroke-width="1"/>
+  <rect x="40" y="70" width="560" height="22" rx="6" fill="#EF4444" opacity="0.3"/>
+  <text x="320" y="86" text-anchor="middle" font-size="10.5" fill="#FCA5A5">主线程被 KEYS 独占（几秒）——期间 SET/GET 全部排队</text>
+  <g font-size="9.5">
+    <rect x="40" y="98" width="60" height="18" rx="4" fill="#EF4444" opacity="0.55"/><text x="70" y="111" text-anchor="middle" fill="#FEE2E2">GET 排队</text>
+    <rect x="104" y="98" width="60" height="18" rx="4" fill="#EF4444" opacity="0.55"/><text x="134" y="111" text-anchor="middle" fill="#FEE2E2">SET 排队</text>
+    <rect x="168" y="98" width="60" height="18" rx="4" fill="#EF4444" opacity="0.55"/><text x="198" y="111" text-anchor="middle" fill="#FEE2E2">DEL 排队</text>
+  </g>
+
+  <text x="340" y="150" text-anchor="middle" font-size="13" fill="#6EE7B7">✓ SCAN 游标 500 —— 分一万批小步走</text>
+  <g font-size="10" text-anchor="middle">
+    <rect x="40" y="160" width="54" height="20" rx="5" fill="#12261E" stroke="#10B981"/><text x="67" y="174" fill="#6EE7B7">批1 500</text>
+    <rect x="100" y="160" width="54" height="20" rx="5" fill="#16223A" stroke="#475569"/><text x="127" y="174" fill="#94A3B8">处理请求</text>
+    <rect x="160" y="160" width="54" height="20" rx="5" fill="#12261E" stroke="#10B981"/><text x="187" y="174" fill="#6EE7B7">批2 500</text>
+    <rect x="220" y="160" width="54" height="20" rx="5" fill="#16223A" stroke="#475569"/><text x="247" y="174" fill="#94A3B8">处理请求</text>
+    <rect x="280" y="160" width="54" height="20" rx="5" fill="#12261E" stroke="#10B981"/><text x="307" y="174" fill="#6EE7B7">批3 500</text>
+    <rect x="340" y="160" width="54" height="20" rx="5" fill="#16223A" stroke="#475569"/><text x="367" y="174" fill="#94A3B8">处理请求</text>
+    <rect x="400" y="160" width="54" height="20" rx="5" fill="#12261E" stroke="#10B981"/><text x="427" y="174" fill="#6EE7B7">批4 500</text>
+    <rect x="460" y="160" width="54" height="20" rx="5" fill="#16223A" stroke="#475569"/><text x="487" y="174" fill="#94A3B8">…</text>
+  </g>
+  <line x1="530" y1="170" x2="620" y2="170" stroke="#64B5F6" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arr-m09-kk)"/>
+  <text x="576" y="160" text-anchor="middle" font-size="10" fill="#94A3B8">直到游标回 0</text>
+  <text x="340" y="198" text-anchor="middle" font-size="11" fill="#94A3B8">每批几毫秒，主线程批间穿插处理正常请求：慢工作做完了，业务几乎无感</text>
+
+  <rect x="40" y="220" width="600" height="66" rx="10" fill="#16223A" stroke="#3B82F6" stroke-width="1"/>
+  <text x="58" y="244" font-size="12" fill="#93C5FD">三条同源红线（都是「单线程别做慢事」）：</text>
+  <text x="58" y="262" font-size="11" fill="#94A3B8">① 遍历用 SCAN 不用 KEYS　② 大 value 拆小（BigKey）　③ O(N) 命令（FLUSHALL/SIZE 大集合）错峰执行</text>
+  <text x="58" y="279" font-size="11" fill="#6EE7B7">对照前端：60fps 渲染循环里塞一次 O(n) 大循环，整条流水线跟着卡——同一个道理</text>
+</svg>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：BigKey 拖垮网卡。</strong>单个 value 几百 KB 到几 MB（典型：把整个列表页 JSON 存进一个 key）。危害：读写它时占满带宽、阻塞其他命令；删它时更会卡一下（Redis 4+ 用 UNLINK 异步删缓解）。防法：<strong>大对象拆小</strong>——列表缓存按页拆 key（todo:page:1），对象缓存用 Hash 按字段读写：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: 'BigKey 排查与拆分',
+          code: `# 排查：找最大的几个 key（离线执行，别在高峰跑）
+redis-cli --bigkeys
+
+# 拆分示例：一个 3MB 的列表缓存
+# 反面教材：todo:all = 3MB JSON，改一条就要整读整写
+# 正面写法：todo:page:1 / todo:page:2（每页一条）+ todo:detail:1（单条详情）
+# 读写粒度从「整个列表」降到「一页 / 一条」，命中率与带宽都健康`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：空值缓存被滥用。</strong>l03 讲过穿透的修法之一是「把不存在的 key 也缓存成 null」。但注意它的阴暗面：<strong>攻击者用一百万个随机 id 请求</strong>，每个都往 Redis 塞一个 null key——内存被垃圾塞满。修法三连：空值 TTL 必须<strong>短</strong>（30~60 秒）；空值 key 加<strong>数量上限</strong>（如同一分钟最多缓存 1000 个）；入口先做<strong>参数校验</strong>（id 必须正数、格式合法的先挡掉）。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：@Cacheable 自调用失效。</strong>m07-l06 讲过事务自调用，缓存注解是同一个坑：同一个类里 A 方法直接调本类的 B 方法（B 上有 @Cacheable），<strong>走的是 this 不走代理，缓存完全失效</strong>且无任何报错。自查与修法同事务：把 B 挪到另一个 Service；或通过 self 注入的代理对象调用；启动类别忘了 @EnableCaching。顺带一提方法签名：非 public 方法上写 @Cacheable 同样静默失效。</p>`,
+        },
+        {
+          type: 'table',
+          title: 'Redis 故障速查表',
+          head: ['告警 / 现象', '第一嫌疑', '修法'],
+          rows: [
+            ['redis-cli 里 key 全是乱码字节', '默认 JDK 序列化', 'String key + GenericJackson2Json value，清掉旧 key'],
+            ['内存持续上涨不回落', 'TTL 忘设的垃圾 key', '全员 set 带 EX；配 maxmemory + allkeys-lru'],
+            ['接口偶发集体卡顿，Redis 单点 CPU 满', '有人跑了 KEYS', '改 SCAN；代码评审禁 KEYS'],
+            ['网卡流量异常大', 'BigKey 整读整写', '--bigkeys 定位；按页/按字段拆 key'],
+            ['内存被垃圾 null 塞满', '空值缓存无上限', '短 TTL + 数量上限 + 入口参数校验'],
+            ['缓存注解像不存在', '自调用 / 非 public / 没开 @EnableCaching', '挪类或走代理；检查注解位置'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>KEYS 阻塞 ≈ 在 60fps 的渲染循环里跑了一次 O(n) 大循环，整条流水线跟着卡；BigKey ≈ 一个巨大对象放进 Redux store，每次改一个字段都触发全量序列化；@Cacheable 自调用 ≈ Vue 里 <code>this.method()</code> 直接调内部方法绕过了 watch/computed 的缓存。<strong>单线程的 Redis 把「别做慢操作」变成了铁律</strong>。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>给项目的 RedisTemplate 配好 String + JSON 序列化并清过旧 key。</li>
+<li>检查过 INFO memory 的水位与淘汰策略，确认 maxmemory-policy 存在。</li>
+<li>代码里 grep 一遍 KEYS（确认没有）、grep 一遍不带 TTL 的 set。</li></ul>
+<p>最后一个模块进入 Docker，把应用、MySQL、Redis 三件套一起装箱。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'redis-cli 里看到 key 显示为 \\xac\\xed\\x00\\x05 开头的字节串，原因是？',
+          options: [
+            'Redis 数据损坏',
+            'RedisTemplate 默认 JDK 序列化，key 和 value 都是二进制',
+            '字符集配置错误',
+            'Redis 版本太低',
+          ],
+          answer: 1,
+          explain:
+            'JDK 序列化输出带类信息的二进制。改用 StringRedisSerializer（key）+ GenericJackson2JsonRedisSerializer（value），并清掉旧 key 后重写缓存。',
+        },
+        {
+          q: '关于 KEYS 与 SCAN，说法正确的是？',
+          options: [
+            'KEYS 更快，业务代码优先用 KEYS',
+            'KEYS 是 O(N) 且阻塞 Redis 单线程，生产禁用；SCAN 游标分批不阻塞',
+            '两者都能用，只是返回格式不同',
+            'SCAN 只能在主从架构上使用',
+          ],
+          answer: 1,
+          explain:
+            'Redis 命令执行是单线程的，KEYS 扫描期间所有请求排队。SCAN 用游标分批返回，每批 count 控制开销，是遍历的唯一正确姿势。',
+        },
+        {
+          q: 'Redis 内存使用率持续上涨且不回落，最常见的原因是？',
+          options: [
+            'Redis 版本升级导致',
+            '大量 key 没有 TTL，只写不删',
+            '连接数太多',
+            '持久化文件太大',
+          ],
+          answer: 1,
+          explain:
+            '没有过期时间的 key 是内存黑洞。两条纪律：写缓存必须带 EX/TTL；兜底配置 maxmemory + allkeys-lru 淘汰策略，防止打满后写入报错。',
+        },
+        {
+          q: '同类中 A 方法调用本类带 @Cacheable 的 B 方法，缓存不生效。与下列哪个问题是同源的？',
+          options: [
+            '缓存穿透',
+            'm07-l06 的事务自调用失效——都是 this 调用绕过 AOP 代理',
+            '缓存雪崩',
+            'BigKey',
+          ],
+          answer: 1,
+          explain:
+            '@Cacheable 与 @Transactional 都靠代理对象织入逻辑。this.B() 走原始对象，代理逻辑被跳过且无报错。修法同为：挪到另一个 Service 或经代理对象调用。',
         },
       ],
     },

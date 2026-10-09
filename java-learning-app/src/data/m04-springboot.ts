@@ -20,11 +20,11 @@ export const module: RawModule = {
   phaseName: '阶段二 · 写出后端',
   icon: '🍃',
   cover: 'assets/img/m04-springboot.jpg',
-  minutes: 120,
+  minutes: 150,
   summary:
-    'Spring Boot 不是新框架，而是「帮你把 Spring 该怎么配置都配好了」的工具集——正如 Vite 之于 webpack。先用一课把 IoC/DI 的直觉打通，再用两课写出可 curl 通的待办清单接口，最后一课把配置从代码里搬到 application.yml。做完本模块，你手上就有一个能跑起来的后端服务。',
+    'Spring Boot 不是新框架，而是「帮你把 Spring 该怎么配置都配好了」的工具集——正如 Vite 之于 webpack。先用一课把 IoC/DI 的直觉打通，再用两课写出可 curl 通的待办清单接口，最后一课把配置从代码里搬到 application.yml。收尾用一课避坑清单讲端口占用、循环依赖、Bean 找不到、配置不生效这些启动期高频故障。做完本模块，你手上就有一个能跑起来的后端服务。',
 
-  /* ---------------- 闪卡 10 张 ---------------- */
+  /* ---------------- 闪卡 13 张 ---------------- */
   flashcards: [
     { front: '把类交给 Spring 容器管理用什么注解？', back: '@Component；@Service / @Repository / @Controller 都是它的特化', tag: '注解' },
     { front: '启动类上的核心注解是哪个？', back: '@SpringBootApplication = 配置类 + 自动装配 + 组件扫描', tag: '注解' },
@@ -36,6 +36,9 @@ export const module: RawModule = {
     { front: '端口被占用的 Windows 排查命令？', back: 'netstat -ano | findstr :8080 拿 PID，再 taskkill /PID 进程号 /F', tag: '坑点' },
     { front: 'Boot 3 的包名与 Boot 2 有何不同？', back: '全面迁到 jakarta.*，不再是 javax.*；Redis 前缀改为 spring.data.redis.*', tag: '配置' },
     { front: '激活多环境配置的两种方式？', back: '配置里写 spring.profiles.active，或启动加同名参数', tag: '配置' },
+    { front: '启动报 BeanCurrentlyInCreationException 是什么问题？', back: '循环依赖：两个 Bean 互相注入。Boot 2.6+ 默认禁止。重构拆类是根治，@Lazy 可应急', tag: '坑点' },
+    { front: '@Component 写了但 Bean 找不到，先查什么？', back: '类是否在启动类所在包及其子包之外——组件扫描默认只扫启动类的包路径', tag: '坑点' },
+    { front: 'application.yml 改了却不生效，先查什么？', back: '缩进是否用空格、是否被命令行参数或更高优先级配置覆盖、profile 是否激活了另一份文件', tag: '坑点' },
   ],
 
   lessons: [
@@ -875,6 +878,251 @@ java -jar target\todo-api-0.0.1-SNAPSHOT.jar --server.port=9090`,
           answer: 1,
           explain:
             'Boot 3 时代驱动类名为 com.mysql.cj.jdbc.Driver（依赖坐标 mysql-connector-j），数据源配置在 spring.datasource 下。javax.* 已全面迁移到 jakarta.*。',
+        },
+      ],
+    },
+
+    /* ============================ L05 ============================ */
+    {
+      id: 'm04-l05',
+      title: '避坑清单：Spring Boot 启动期翻车 Top 6',
+      minutes: 30,
+      goal: '收拢 Spring Boot 新手启动期最高频的 6 类故障：端口占用、循环依赖、Bean 找不到、配置不生效、事务悄悄失效、依赖冲突。每个坑给「报错原文 → 原因 → 修法」，学会看启动日志定位问题。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>Spring Boot 的报错信息其实很「话痨」——启动失败时会打一大屏日志，新手往往被吓退。这一课教你先认识这 6 类最常见故障的报错长相，以后启动红了不慌，对着课里的修法一条条过。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：端口占用（出现率第一）。</strong>报错长相：</p>
+<pre>Web server failed to start. Port 8080 was already in use.</pre>
+<p>原因简单粗暴：上一个进程还挂着 8080（最常见——上次运行的 Boot 进程没杀干净，或者别的服务占了端口）。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: 'Windows 排查与处理',
+          code: `# 1) 找出占用 8080 的进程 PID（-ano 显示 PID）
+netstat -ano | findstr :8080
+# 输出示例：TCP    0.0.0.0:8080   0.0.0.0:0   LISTENING   32148
+
+# 2) 杀掉它
+taskkill /PID 32148 /F
+
+# 或者干脆给本项目换个端口（application.yml）
+# server:
+#   port: 8081
+
+# IDEA 里更快的方式：Run 面板底部点红色的方块（Stop）再启动，避免僵尸进程`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：循环依赖。</strong>报错长相：</p>
+<pre>The dependencies of some of the beans in the application context form a cycle:
+┌─────┐
+|  orderService defined in file [OrderService.class]
+↑     ↓
+|  paymentService defined in file [PaymentService.class]
+└─────┘</pre>
+<p>OrderService 注入 PaymentService，PaymentService 又注入 OrderService——鸡生蛋蛋生鸡，Spring 无法决定先创建谁。<strong>Boot 2.6 起默认直接启动失败</strong>（以前只是警告）。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '三种解法，按推荐度排序',
+          code: `// 解法 1（根治）：重新划职责。把两个类都要用的逻辑抽成第三个类 C，A 和 C，B 和 C
+@Service
+public class OrderService {
+    private final PaymentService payment;   // payment 里不再引用 order
+}
+
+// 解法 2（应急）：一边加 @Lazy，注入一个延迟代理，启动时不再当场解析
+@Service
+public class OrderService {
+    public OrderService(@Lazy PaymentService payment) {
+        this.payment = payment;
+    }
+}
+
+// 解法 3（应急）：一边改成 setter 注入（Spring 能先给半成品再回头补）
+@Service
+public class OrderService {
+    private PaymentService payment;
+    @Autowired
+    public void setPayment(PaymentService p) { this.payment = p; }
+}
+
+// 反面教材：spring.main.allow-circular-references=true —— 掩耳盗铃，问题还在`,
+        },
+        {
+          type: 'diagram',
+          caption: '代理视角看事务：跨 Bean 调用必经代理（事务生效），同类 this 调用抄近道绕过代理（事务失效）',
+          svg: String.raw`<svg viewBox="0 0 680 330" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arr-m04-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#10B981"/>
+    </marker>
+    <marker id="arr-m04-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#EF4444"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="330" rx="12" fill="#0F1B2D"/>
+  <text x="340" y="32" text-anchor="middle" font-size="16" fill="#E2E8F0">事务为什么失效：this 调用绕过了代理</text>
+
+  <text x="170" y="64" text-anchor="middle" font-size="13.5" fill="#10B981">✓ 跨 Bean 调用（走代理，事务生效）</text>
+  <rect x="24" y="78" width="120" height="50" rx="10" fill="#1B2A44" stroke="#3B82F6" stroke-width="1.5"/>
+  <text x="84" y="100" text-anchor="middle" font-size="12.5" fill="#E2E8F0">Controller</text>
+  <text x="84" y="118" text-anchor="middle" font-size="11" fill="#94A3B8">发起调用</text>
+
+  <line x1="144" y1="103" x2="196" y2="103" stroke="#10B981" stroke-width="1.8" marker-end="url(#arr-m04-ok)"/>
+
+  <rect x="200" y="78" width="140" height="50" rx="10" fill="#12261E" stroke="#10B981" stroke-width="1.6"/>
+  <text x="270" y="100" text-anchor="middle" font-size="12.5" fill="#6EE7B7">事务代理 $Proxy</text>
+  <text x="270" y="118" text-anchor="middle" font-size="10.5" fill="#A7F3D0">开事务 → 放行 → 提交/回滚</text>
+
+  <line x1="340" y1="103" x2="392" y2="103" stroke="#10B981" stroke-width="1.8" marker-end="url(#arr-m04-ok)"/>
+  <text x="366" y="92" text-anchor="middle" font-size="10.5" fill="#94A3B8">方法前后包一层</text>
+
+  <rect x="396" y="78" width="130" height="50" rx="10" fill="#1B2A44" stroke="#3B82F6" stroke-width="1.5"/>
+  <text x="461" y="100" text-anchor="middle" font-size="12.5" fill="#E2E8F0">OrderService 原始对象</text>
+  <text x="461" y="118" text-anchor="middle" font-size="11" fill="#94A3B8">@Transactional B()</text>
+
+  <text x="510" y="172" text-anchor="middle" font-size="13.5" fill="#F87171">✗ 同类自调用 this.B()（事务失效）</text>
+  <rect x="396" y="216" width="130" height="50" rx="10" fill="#1B2A44" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="461" y="238" text-anchor="middle" font-size="12.5" fill="#E2E8F0">A() 方法内部</text>
+  <text x="461" y="256" text-anchor="middle" font-size="11" fill="#F59E0B">this.B() ← 直接进</text>
+
+  <line x1="461" y1="216" x2="461" y2="136" stroke="#EF4444" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arr-m04-bad)"/>
+  <text x="470" y="180" font-size="10.5" fill="#FCA5A5">不经过代理，事务开关被跳过</text>
+
+  <rect x="24" y="216" width="330" height="96" rx="10" fill="#16223A" stroke="#3B82F6" stroke-width="1"/>
+  <text x="42" y="242" font-size="12" fill="#93C5FD">记忆点</text>
+  <text x="42" y="262" font-size="11.5" fill="#94A3B8">事务/缓存这类注解 = 代理对象在外面包的逻辑。</text>
+  <text x="42" y="280" font-size="11.5" fill="#94A3B8">this 调用走的是原始对象，代理被完全绕开。</text>
+  <text x="42" y="298" font-size="11.5" fill="#6EE7B7">修法：挪到另一个 Service（跨 Bean 必经代理）。</text>
+
+  <line x1="84" y1="128" x2="84" y2="216" stroke="#64B5F6" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arr-m04-ok)"/>
+  <text x="96" y="180" font-size="10.5" fill="#94A3B8">同理：@Cacheable / @Async 自调用一样失效</text>
+</svg>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：Bean 找不到。</strong>报错长相：</p>
+<pre>Field userService in com.example.demo.TodoController required a bean of 'UserService' that could not be found.</pre>
+<p>三个最常见原因，按概率排查：</p>
+<ul><li><strong>忘了加注解</strong>：类上没有 @Service / @Component，Spring 压根不认识它；</li>
+<li><strong>扫描路径不覆盖</strong>：@SpringBootApplication 只扫描<strong>启动类所在包及其子包</strong>。把启动类放在 com.example.demo，你的类却在 com.company.user 包下，永远扫不到——这是新人最隐蔽的坑，表现为「注解明明写了却注入失败」；</li>
+<li><strong>多个实现没有唯一候选</strong>：接口有两个实现类，注入时不加 @Primary / @Qualifier，Spring 不知道选哪个。</li></ul>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：application.yml 改了却不生效。</strong>四个常见原因：</p>
+<ul><li><strong>缩进用了 Tab</strong>：YAML 只认空格，Tab 直接抛 ScannerException，这个反而好查；</li>
+<li><strong>层级写错</strong>：<code>server.port</code> 写成顶层的 <code>port:</code>，Spring 读不到也不报错（未知属性被静默忽略）；</li>
+<li><strong>被更高优先级覆盖</strong>：命令行参数 &gt; 环境变量 &gt; application-{profile}.yml &gt; application.yml。启动脚本里带了一个 --server.port=9090，你改 yml 当然没用；</li>
+<li><strong>profile 激活了另一份文件</strong>：spring.profiles.active=dev 时 application-dev.yml 的同名配置会盖掉主配置。</li></ul>`,
+        },
+        {
+          type: 'code',
+          lang: 'java',
+          filename: '确认配置实际生效值',
+          code: `// 启动后访问 /actuator/env 能看到每个配置项的最终来源与优先级（需引入 actuator）
+// 更轻量的调试法：启动类里打印
+@SpringBootApplication
+public class App {
+    public static void main(String[] args) {
+        var ctx = SpringApplication.run(App, args);
+        System.out.println("实际端口 = " + ctx.getEnvironment().getProperty("server.port"));
+    }
+}
+
+// 读取配置的正确注解：占位符写法
+@Value("${DOLLAR}{todo.default-page-size:10}")   // 冒号后是默认值
+private int defaultPageSize;`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>坑 5：事务悄悄失效（先立个牌子）。</strong>@Transactional 没生效的表现是：方法里第二步抛异常了，第一步的数据却没有回滚。三个高频原因：<strong>同类内部自调用</strong>（this.methodB() 不走代理，注解形同虚设）、方法不是 public、抛的是受检异常（默认只回滚 RuntimeException）。这个坑在 m07 的事务课里完整展开，这里先记住口诀：<strong>自调用、非 public、受检异常 = 事务失效三兄弟</strong>。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：依赖冲突导致启动炸。</strong>现象：明明什么都没改，加了个新依赖后启动报 <code>NoClassDefFoundError</code> 或一串 Spring 自动装配失败。原因与修法同 m02 避坑课：新依赖带进来了某个库的旧版本，把 Spring Boot 自己管理的版本覆盖了。<strong>修法优先级：</strong>能走 starter 就走 starter（版本由 Boot 统一管），必要时用 dependencyManagement 锁版本，<code>mvn dependency:tree -Dverbose</code> 定位。</p>`,
+        },
+        {
+          type: 'table',
+          title: '启动报错速查表（建议截图保存）',
+          head: ['报错关键词', '病因', '第一修法'],
+          rows: [
+            ['Port 8080 was already in use', '端口被占', 'netstat 找 PID 后 taskkill，或改 server.port'],
+            ['form a cycle / BeanCurrentlyInCreationException', '循环依赖', '重构拆类；应急 @Lazy 或 setter 注入'],
+            ['required a bean ... could not be found', 'Bean 未注册', '查注解 → 查启动类包路径 → 查多实现冲突'],
+            ['ScannerException / while scanning', 'YAML 缩进错误', 'Tab 换空格，冒号后加空格'],
+            ['NoClassDefFoundError（启动期）', '依赖冲突', 'dependency:tree + dependencyManagement'],
+            ['Transaction silently rolled back / 数据没回滚', '事务失效三兄弟', '自查自调用 / 非 public / 受检异常'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>循环依赖 ≈ 两个 ES Module 互相 import 导致 undefined（Vite 会报「Cannot access before initialization」，Spring 报 cycle，本质相同）；Bean 找不到 ≈ import 路径写错拿不到导出；配置被覆盖 ≈ Vite 的 env 优先级（.env.local 盖 .env）。后端框架把「依赖图」「配置合并」都做在了启动期，所以这些错都炸在启动那一屏——<strong>学会读启动日志，就掌握了后端排障的一半</strong>。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>能对着报错关键词说出 6 类故障的病因与第一修法。</li>
+<li>亲手制造并解决过一次端口占用。</li>
+<li>记住事务失效三兄弟，m07 展开细讲。</li></ul>
+<p>下一模块进入 MySQL，给待办清单接上真正的数据库。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: '启动报「Port 8080 was already in use」，下列哪组命令能定位并结束占用进程（Windows）？',
+          options: [
+            'ipconfig 后直接重启电脑',
+            'netstat -ano | findstr :8080 找到 PID，taskkill /PID 进程号 /F',
+            'ping localhost 确认端口不通',
+            '把 JDK 重装一遍',
+          ],
+          answer: 1,
+          explain:
+            'netstat -ano 列出监听端口的进程 PID，findstr 过滤 8080，taskkill /PID x /F 强制结束。也可以直接改 server.port 换端口绕开。',
+        },
+        {
+          q: 'Boot 2.6+ 启动报「form a cycle」循环依赖，下列哪种是根治方案？',
+          options: [
+            '配置 spring.main.allow-circular-references=true 放行',
+            '把两个类的公共逻辑抽到第三个类，消除互相注入',
+            '两个类都用字段注入 @Autowired',
+            '把启动类移到别的包',
+          ],
+          answer: 1,
+          explain:
+            '放行开关只是掩盖设计问题（Boot 官方也不推荐），字段注入同样是绕不是治。抽出公共依赖让依赖图不再成环才是根治；@Lazy / setter 注入属于应急手段。',
+        },
+        {
+          q: '@Service 注解明明写了，注入时却报「required a bean ... could not be found」，最隐蔽的一个原因是？',
+          options: [
+            '注解拼写错误',
+            '类不在启动类所在包及其子包内，组件扫描覆盖不到',
+            'JDK 版本太低',
+            'application.yml 没写扫描路径',
+          ],
+          answer: 1,
+          explain:
+            '@SpringBootApplication 默认只扫描启动类所在包及子包。启动类在 com.example.demo，你的类在 com.company.user 下就永远扫不到。把包结构对齐（或显式 scanBasePackages）即可。',
+        },
+        {
+          q: '以下哪种情况会让 @Transactional 失效？',
+          options: [
+            '方法标注在 public 方法上，由外部 Bean 调用',
+            '同一个类里 A 方法内部直接调用带注解的 B 方法（this 自调用）',
+            '抛出 NullPointerException',
+            '数据库连接正常',
+          ],
+          answer: 1,
+          explain:
+            '事务由代理对象实现，this 自调用不走代理，注解失效。另外非 public 方法、抛受检异常（默认只回滚 RuntimeException）也会失效——「事务失效三兄弟」，m07 详细展开。',
         },
       ],
     },

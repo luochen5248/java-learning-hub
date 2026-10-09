@@ -177,9 +177,9 @@ export const module: RawModule = {
   phaseName: '阶段三 · 原理补课与进阶',
   icon: '🐳',
   cover: 'assets/img/m10-docker.jpg',
-  minutes: 100,
+  minutes: 145,
   summary:
-    'm08 你手工装了 JDK、传了 jar、改了防火墙；m09 又手工装了一个 Redis。这一模块把这些动作全部收进 Docker：先把「待办清单 API」打成一个自带 JRE 的镜像，再用一份 docker-compose.yml 把应用、MySQL、Redis 三个容器编排在一起，一条命令拉起、数据卷持久化、curl 验证接口。K8s、Swarm 属于超出入门范围的内容，本模块不展开，但读完你就能独立交付一个小项目的完整部署。',
+    'm08 你手工装了 JDK、传了 jar、改了防火墙；m09 又手工装了一个 Redis。这一模块把这些动作全部收进 Docker：先把「待办清单 API」打成一个自带 JRE 的镜像，再用一份 docker-compose.yml 把应用、MySQL、Redis 三个容器编排在一起，一条命令拉起、数据卷持久化、curl 验证接口。收尾的避坑清单专治镜像拉取失败、容器秒退、日志膨胀、容器时区这些环境问题。K8s、Swarm 属于超出入门范围的内容，本模块不展开，但读完你就能独立交付一个小项目的完整部署。',
 
   flashcards: [
     { front: '镜像和容器的关系是什么？', back: '镜像是只读模板（≈ class），容器是镜像跑起来的实例（≈ 对象）。同一镜像可以 run 出多个互不影响的容器', tag: '概念' },
@@ -192,6 +192,9 @@ export const module: RawModule = {
     { front: 'compose 里服务名有什么特殊作用？', back: '服务名就是容器内网里的 hostname，应用连库写 jdbc:mysql://mysql:3306 而不是 localhost', tag: '配置' },
     { front: '进入正在运行的容器看日志/配置怎么操作？', back: 'docker logs -f <容器> 看日志；docker exec -it <容器> bash 进容器内部；docker ps / ps -a 看状态', tag: '命令' },
     { front: 'Windows 上装 Docker Desktop 的硬性前提？', back: 'Windows 10/11 需开启 WSL2（wsl --install）或 Hyper-V；BIOS 里打开虚拟化。首次启动会下载 WSL 内核', tag: '坑点' },
+    { front: 'docker pull 超时/失败，先查什么？', back: 'docker info | grep -A5 Mirrors 看加速器配了没。国内需在 daemon.json（或 Docker Desktop 设置）配 registry-mirrors', tag: '坑点' },
+    { front: '容器起来几秒就退出（Exited），怎么排查？', back: 'docker logs <容器> 看退出日志。常见根因：CMD 不是前台常驻进程（容器主进程退出=容器退出）', tag: '坑点' },
+    { front: '容器日志无限膨胀怎么防？', back: '全局或按容器配 log-driver json-file + max-size/max-file，如 compose 里 logging.options.max-size: "50m"', tag: '坑点' },
   ],
 
   lessons: [
@@ -753,7 +756,262 @@ docker compose down -v`,
           ],
           answer: 1,
           explain:
-            '<p>depends_on 仅控制容器启动先后。数据库进程起来了不代表能接受连接，要用 healthcheck + condition: service_healthy，或在应用侧配置连接重试。</p>',
+            '<p>depends_on 只保证容器启动顺序。数据库进程起来了不代表能接受连接，要用 healthcheck + condition: service_healthy，或应用侧配置连接重试。</p>',
+        },
+      ],
+    },
+
+    /* ============ 第 4 课 避坑清单 ============ */
+    {
+      id: 'm10-l04',
+      title: '避坑清单：Docker 环境事故 Top 6',
+      minutes: 30,
+      goal: '收拢 Docker 日常最高频的 6 类故障：镜像拉取失败、容器秒退、日志膨胀、容器时区、内存超限被杀、磁盘被镜像堆满。学完这一课，Docker Desktop 的红色报错不再吓人。',
+      sections: [
+        {
+          type: 'text',
+          html: String.raw`<p>前面三课讲的是「怎么用」，这一课讲「环境不配合怎么办」。Docker 的事故有个特点：<strong>和你的代码完全无关</strong>——镜像、网络、磁盘、时区，全是基础设施层的坑，但会以「我的接口不通了」的形式呈现在你面前。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 1：docker pull 超时 / TLS handshake timeout。</strong>国内直连 Docker Hub 基本不通，第一修法是配镜像加速器。注意一个反直觉的机制：<strong>registry-mirrors 是「优先尝试」不是强制代理</strong>——加速器上没有的镜像（比如你写错了名字）会自动回退去官方源，然后超时报错，看起来像「配置没生效」。</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'json',
+          filename: 'daemon.json（Linux 全局；Windows/Mac 在 Docker Desktop 设置 → Docker Engine 里改）',
+          code: `{
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://dockerproxy.net"
+  ],
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "3" }
+}
+
+// 改完重启 Docker，验证配置加载：
+// docker info | grep -A 5 "Registry Mirrors"
+//
+// 排查口诀：拉取失败先 docker info 看 mirrors 是否生效 → 再看镜像名/标签拼错没有
+// （manifest unknown 404 = 名字错或该镜像真不存在，加速器没问题）`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 2：容器起来几秒就 Exited。</strong>新手第一懵：run 明明成功，docker ps 里却看不到。先 <code>docker ps -a</code> 找到它看状态（Exited (0) 正常退出 / Exited (1) 报错退出），再 <code>docker logs 容器名</code> 看临终日志。最常见的根因：<strong>容器的 1 号进程退出了</strong>——容器和虚拟机不同，主进程停 = 容器停：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'dockerfile',
+          filename: '秒退对照',
+          code: `# 反面教材：CMD 跑完就退，容器跟着退
+FROM ubuntu
+CMD echo "hello"                      # 打印完主进程结束 → Exited (0)
+
+# 反面教材 2：脚本里最后启动了后台进程，脚本本身退出
+# CMD start.sh && sleep 1             # start.sh 拉起 java 后退出 → 容器跟着退
+
+# 正面写法：主进程必须前台常驻（Spring Boot 的 jar 天然前台，没问题）
+FROM eclipse-temurin:17-jre
+COPY app.jar /app.jar
+CMD ["java", "-jar", "/app.jar"]      # java 进程常驻 → 容器常驻
+
+# 需要跑一次性脚本又想保持容器？不推荐 tail -f /dev/null 占位（假常驻），
+# 应该想清楚「这个容器的主进程是什么」`,
+        },
+        {
+          type: 'diagram',
+          caption: '容器生命周期 = 1 号进程的生命周期：echo 跑完即退容器即停；java -jar 常驻则容器常驻',
+          svg: String.raw`<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arr-m10-life" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="arr-m10-dead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#EF4444"/>
+    </marker>
+    <marker id="arr-m10-alive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#10B981"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="320" rx="12" fill="#0F1B2D"/>
+  <text x="340" y="32" text-anchor="middle" font-size="16" fill="#E2E8F0">容器 = 一个被隔离的进程：1 号进程死，容器就死</text>
+
+  <text x="170" y="64" text-anchor="middle" font-size="13" fill="#F87171">✗ Exited (0)：主进程跑完了</text>
+  <rect x="30" y="76" width="280" height="150" rx="12" fill="#1B2A44" stroke="#EF4444" stroke-width="1.4"/>
+  <text x="170" y="100" text-anchor="middle" font-size="11.5" fill="#94A3B8">docker run ubuntu CMD echo hello</text>
+  <rect x="50" y="114" width="240" height="26" rx="6" fill="#2A3B5C" stroke="#475569"/>
+  <text x="170" y="131" text-anchor="middle" font-size="11" fill="#E2E8F0">PID 1 = echo "hello"</text>
+  <line x1="170" y1="140" x2="170" y2="164" stroke="#EF4444" stroke-width="1.8" marker-end="url(#arr-m10-dead)"/>
+  <text x="170" y="158" text-anchor="middle" font-size="10" fill="#FCA5A5">打印完 → 进程结束</text>
+  <rect x="50" y="168" width="240" height="24" rx="6" fill="#2A1620" stroke="#EF4444"/>
+  <text x="170" y="184" text-anchor="middle" font-size="11" fill="#F87171">容器状态：Exited (0)</text>
+  <text x="170" y="210" text-anchor="middle" font-size="10.5" fill="#94A3B8">这不是崩溃，是它「工作完成了」</text>
+
+  <text x="510" y="64" text-anchor="middle" font-size="13" fill="#6EE7B7">✓ Up (healthy)：主进程常驻</text>
+  <rect x="370" y="76" width="280" height="150" rx="12" fill="#1B2A44" stroke="#10B981" stroke-width="1.4"/>
+  <text x="510" y="100" text-anchor="middle" font-size="11.5" fill="#94A3B8">CMD ["java", "-jar", "app.jar"]</text>
+  <rect x="390" y="114" width="240" height="26" rx="6" fill="#12261E" stroke="#10B981"/>
+  <text x="510" y="131" text-anchor="middle" font-size="11" fill="#6EE7B7">PID 1 = java 进程（前台常驻）</text>
+  <line x1="510" y1="140" x2="510" y2="164" stroke="#10B981" stroke-width="1.8" marker-end="url(#arr-m10-alive)"/>
+  <text x="510" y="158" text-anchor="middle" font-size="10" fill="#6EE7B7">一直监听 8080 端口</text>
+  <rect x="390" y="168" width="240" height="24" rx="6" fill="#12261E" stroke="#10B981"/>
+  <text x="510" y="184" text-anchor="middle" font-size="11" fill="#6EE7B7">容器状态：Up / healthy</text>
+  <text x="510" y="210" text-anchor="middle" font-size="10.5" fill="#94A3B8">docker logs / exec 随时查看</text>
+
+  <rect x="30" y="244" width="620" height="60" rx="10" fill="#16223A" stroke="#3B82F6" stroke-width="1"/>
+  <text x="48" y="266" font-size="12" fill="#93C5FD">排查口诀：docker ps -a 找状态 → Exited (0) 主进程自然结束 / Exited (1) 报错退出 / Exited (137) 被 OOM 杀</text>
+  <text x="48" y="284" font-size="11.5" fill="#94A3B8">再 docker logs 容器名 看临终日志。前端对照：node 脚本跑完自动退出 CLI——容器把「进程退出」升级成了生命周期事件</text>
+</svg>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 3：日志膨胀，磁盘悄悄被吃光。</strong>容器的 stdout/stderr 默认全部存进 json-file，且<strong>无上限</strong>。Spring Boot 服务跑几个月，一个容器几十 GB 日志直接把服务器磁盘打爆（表现：数据库写不进、系统命令都卡）。修法就是坑 1 配置里的 <code>log-opts</code>：max-size 50m、max-file 3——单容器日志最多 150MB 自动轮转。<strong>注意：log-opts 只对新容器生效</strong>，改完配置要重建容器。</p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 4：容器时间差 8 小时。</strong>容器内默认 UTC，日志里的时间、MySQL 里的时间戳全部慢 8 小时，和宿主机对不上。修法是给容器声明时区环境变量（compose 统一加）：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'yaml',
+          filename: 'docker-compose.yml 时区片段',
+          code: `services:
+  app:
+    environment:
+      - TZ=Asia/Shanghai              # 容器内系统时区
+      - JAVA_TOOL_OPTIONS=-Duser.timezone=Asia/Shanghai   # JVM 兜底
+  mysql:
+    image: mysql:8.0
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_ROOT_PASSWORD=root123
+    command: --default-time-zone=+08:00    # MySQL 内部时区也要对齐
+  redis:
+    image: redis:7-alpine
+    environment:
+      - TZ=Asia/Shanghai`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 5：容器内存超限被杀（exit 137）。</strong>容器被 OOM Kill 的标志是退出码 137。起因：<strong>JVM 默认按宿主机内存估算堆大小</strong>（老版本 Java），宿主机 16G，JVM 默认敢要 4G，你给容器 --memory=512m，内核直接杀。现代 JDK 17 已能感知 cgroup 限制，但<strong>显式声明依然是纪律</strong>：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '内存限制',
+          code: `# 运行时限制 + JVM 参数对齐
+docker run -m 512m --memory-swap 512m \\
+  -e JAVA_TOOL_OPTIONS="-Xmx384m -Xms384m" \\
+  todo-api:1.0.0
+
+# compose 等价写法
+# services:
+#   app:
+#     deploy:
+#       resources:
+#         limits:
+#           memory: 512M
+
+# 排查被杀的容器：docker inspect 容器名 | grep -i oom
+# "OOMKilled": true 就是它`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>坑 6：磁盘被镜像和悬空层堆满。</strong>反复构建镜像后，旧镜像、悬空层、停掉的容器、无主的数据卷越积越多。<code>docker system df</code> 看占用，然后定期清理：</p>`,
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          filename: '磁盘清理（先看再删）',
+          code: `docker system df            # 镜像 / 容器 / 卷 / 缓存各占多少
+
+# 清理已停止容器 + 悬空镜像 + 无用网络（安全，不动数据卷）
+docker system prune
+
+# 连未使用的镜像一起清（注意：会删掉「没有容器在用」的镜像，下次要重新 pull）
+docker system prune -a
+
+# 数据卷默认不动（里面是 MySQL 数据！）。确认没用的卷再手动删：
+docker volume prune         # 只删「没有容器挂载」的卷——也可能有数据，看清列表再 y`,
+        },
+        {
+          type: 'warn',
+          html: String.raw`<p><strong>volume prune 的高危提醒：</strong>「未被容器挂载」不等于「没数据」——停用状态的 MySQL 卷也在其中。生产机器上执行前先 <code>docker volume ls</code> 看清名单，或者干脆只在开发机上 prune。</p>`,
+        },
+        {
+          type: 'table',
+          title: 'Docker 故障速查表',
+          head: ['现象 / 报错', '第一嫌疑', '修法'],
+          rows: [
+            ['pull 超时 / TLS handshake timeout', '没配加速器或镜像名写错', 'docker info 查 mirrors；核对镜像名；加速器是「优先尝试」'],
+            ['容器 Exited，ps 里看不到', '主进程退出', 'docker logs 看临终日志；CMD 保持前台常驻'],
+            ['磁盘神秘缩水', 'json-file 日志无上限', 'log-opts max-size/max-file（只对新容器生效）'],
+            ['日志/数据时间差 8 小时', '容器默认 UTC', 'TZ=Asia/Shanghai + JVM 与 MySQL 时区对齐'],
+            ['容器退出码 137', '超内存被 OOM Kill', '-m 限制 + JVM -Xmx 显式对齐'],
+            ['docker 命令变慢 / 写入失败', '磁盘被镜像层占满', 'docker system df + prune（卷要慎删）'],
+          ],
+        },
+        {
+          type: 'fe',
+          html: String.raw`<p><strong>对照前端记忆：</strong>镜像加速 ≈ npm 的 registry 镜像（.npmrc），但 Docker 的 mirrors 是「先试后回退」；容器秒退 ≈ node 脚本执行完 CLI 自动退出，区别是容器把「进程退出」提升为生命周期事件；日志膨胀 ≈ 没做日志切割的 winston/PM2；OOM Kill ≈ Chrome 标签页被内存压力干掉，只是这次没有「恢复标签页」按钮。<strong>Docker 的一切故障都值得先看 docker logs 和 docker inspect，它们是容器的黑匣子。</strong></p>`,
+        },
+        {
+          type: 'text',
+          html: String.raw`<p><strong>本课产出物检查清单：</strong></p>
+<ul><li>配好镜像加速并 docker info 验证生效。</li>
+<li>自己的 compose 模板带上 TZ、log-opts、memory limits 三件套。</li>
+<li>体验一次 docker system prune 前后 docker system df 的对比。</li></ul>
+<p>十个模块全部完成——从 IDEA 到 Docker，你已经把一条完整后端交付链路走通了。回头看 m01 的第一课，会有点不可思议。</p>`,
+        },
+      ],
+      quiz: [
+        {
+          q: 'docker pull 一直超时，docker info 显示 Registry Mirrors 为空。下一步是？',
+          options: [
+            '重装 Docker',
+            '在 daemon.json（或 Docker Desktop 设置）配 registry-mirrors 后重启 Docker 再验证',
+            '换 5G 网络重试',
+            '把镜像名改成小写',
+          ],
+          answer: 1,
+          explain:
+            '国内直连 Docker Hub 基本不通，配国内加速器是标准修法。注意 mirrors 是「优先尝试」不是强制代理——拉取仍失败时要检查镜像名/标签是否真实存在。',
+        },
+        {
+          q: '容器 run 成功但几秒后 Exited (0)，最可能的根因是？',
+          options: [
+            '镜像太大',
+            'CMD 执行的是会结束的命令，容器主进程退出等于容器退出',
+            '端口没映射',
+            '没有挂载数据卷',
+          ],
+          answer: 1,
+          explain:
+            'Docker 容器的生命周期跟随 1 号主进程。echo 打印完就退、脚本把服务放后台后自己退出，都会让容器跟着退。修法是保持主进程前台常驻（java -jar 天然满足）。',
+        },
+        {
+          q: '容器退出码 137，docker inspect 显示 "OOMKilled": true。正确处理是？',
+          options: [
+            '重启宿主机',
+            '给容器 -m 上限，并把 JVM -Xmx 显式设置到限额以内（如 512m 容器配 384m 堆）',
+            '把应用代码里的内存泄漏修掉再说',
+            '加 swap 到 8G',
+          ],
+          answer: 1,
+          explain:
+            '137 = 128+9（SIGKILL），是内核 OOM Killer 干的。JVM 老版本按宿主机内存估堆，容器限额小于默认堆就被杀。显式 -m + -Xmx 对齐是纪律；JDK 17 已能感知 cgroup，但显式声明更稳。',
+        },
+        {
+          q: '关于容器日志管理，说法错误的是？',
+          options: [
+            'json-file 驱动默认无上限，服务跑久了能把磁盘吃满',
+            'log-opts 的 max-size / max-file 可以限制单容器日志总量',
+            '改完 daemon.json 的 log-opts 后，正在运行的容器立即生效',
+            'docker system df 可以看镜像、容器、卷、缓存的磁盘占用',
+          ],
+          answer: 2,
+          explain:
+            'log-opts 只在容器创建时读取——改配置后必须重建容器（compose down && up）才生效。这一条是「改了配置怎么没效果」的经典来源。',
         },
       ],
     },

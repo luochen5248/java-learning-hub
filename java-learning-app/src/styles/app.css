@@ -1003,11 +1003,54 @@ button { font-family: inherit; }
 
 /* 表格 */
 .tbl-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  position: relative;
   border: 1px solid var(--line-2);
   border-radius: 12px;
 }
+/* 内层滚动容器：横向滑动交给它，外层只负责边框圆角与提示定位 */
+.tbl-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--track) transparent;
+}
+.tbl-scroll::-webkit-scrollbar { height: 6px; }
+.tbl-scroll::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
+.tbl-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 内容溢出时右缘渐隐，暗示后面还有列 */
+.tbl-wrap.tbl-slidable::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 36px;
+  background: linear-gradient(to left, var(--bg), transparent);
+  border-radius: 0 12px 12px 0;
+  pointer-events: none;
+}
+/* 「左右滑动查看」胶囊：溢出时出现，滑过后淡出 */
+.tbl-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: var(--surface-head);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+.tbl-hint-enter-active,
+.tbl-hint-leave-active { transition: opacity .3s var(--ease); }
+.tbl-hint-enter-from,
+.tbl-hint-leave-to { opacity: 0; }
+
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th {
   padding: 9px 12px;
