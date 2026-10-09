@@ -176,4 +176,5 @@ npm run preview    # 本地预览构建产物
 
 ## 十、开源协议
 
-本项目采用 [MIT License](https://opensource.org/licenses/MIT) 开源，欢迎学习、修改与分发。
+本项目采用 [MIT License](LICENSE) 开源，欢迎学习、修改与分发。
+Copyright (c) 2026 luochen5248
