@@ -1,0 +1,23 @@
+# Gradle / 构建产物
+.gradle/
+build/
+local.properties
+captures/
+
+# Android Studio / IDEA
+.idea/
+*.iml
+.DS_Store
+
+# 签名文件绝对不要提交
+*.jks
+*.keystore
+
+# 由 IDE 自动生成（wrapper 二进制）
+gradle/wrapper/gradle-wrapper.jar
+gradlew
+gradlew.bat
+
+# 拷贝进来的站点内容默认不入库，需要时按 README 重新拷贝
+app/src/main/assets/*
+!app/src/main/assets/README.txt

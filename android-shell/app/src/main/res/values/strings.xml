@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Java 学起来</string>
+    <string name="missing_assets_title">assets 里还没有 index.html</string>
+</resources>

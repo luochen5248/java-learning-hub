@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      壳工程跟随系统深浅色（DayNight）：
+        · 浅色系统 → values/colors.xml 的浅色底色，状态栏图标用深色（@bool/window_light_bars = true）
+        · 深色系统 → values-night/colors.xml 的深色底色，状态栏图标用浅色（= false）
+      窗口底色取自 @color/bg_root，与 Web 端 css 的 --bg 对齐，消除 WebView 加载前后的色差。
+
+      注意：Web 页面自身的主题（跟随系统 / 浅色 / 深色）由 Web 端独立控制，
+      加载完成后会通过 JavaHubTheme JS 接口回调 applyBarAppearance() 校正状态栏图标，
+      所以这里只负责「首屏那一瞬间」不闪错色。
+    -->
+    <style name="Theme.JavaHub" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/bg_root</item>
+        <item name="android:colorBackground">@color/bg_root</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- 状态栏 / 导航栏图标明暗：随 DayNight 资源切换 -->
+        <item name="android:windowLightStatusBar">@bool/window_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/window_light_bars</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="colorPrimary">@color/brand_blue</item>
+        <item name="colorAccent">@color/brand_cyan</item>
+    </style>
+</resources>

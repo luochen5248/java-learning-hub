@@ -1,0 +1,25 @@
+{
+  "name": "java-learning-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "面向 Vue3 + TypeScript 工程师的 Java 后端学习 App（Vue3 + TS + Ant Design Vue，可打包为安卓 App）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "ant-design-vue": "^4.2.6",
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11",
+    "vue-tsc": "^2.1.10"
+  }
+}

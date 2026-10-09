@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      浅色主题（默认）：背景是浅色 → 状态栏 / 导航栏图标必须用深色。
+      depth-night 覆盖值为 false，见 values-night/bools.xml。
+    -->
+    <bool name="window_light_bars">true</bool>
+</resources>

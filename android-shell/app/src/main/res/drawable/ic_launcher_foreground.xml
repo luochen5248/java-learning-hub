@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用图标前景：咖啡杯 + 花括号（Java 语言的标志），青 / 蓝 / 金三色。
+  画布 108x108，图形全部落在中心 72x72 安全区内（坐标 18~90）。
+  参考构图：assets/img/android-icon-foreground.png（矢量化重绘，非位图）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 杯身（青色） -->
+    <path
+        android:fillColor="#22D3EE"
+        android:pathData="M34,44 L74,44 L70,74 C69.4,77.3 66.6,79.6 63.3,79.6 L44.7,79.6 C41.4,79.6 38.6,77.3 38,74 Z" />
+
+    <!-- 咖啡液面（金色横条） -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M35.6,52 L72.4,52 L71.2,60 L36.8,60 Z" />
+
+    <!-- 杯柄（蓝色描边） -->
+    <path
+        android:strokeColor="#3B82F6"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M74,49 L78,49 C82.4,49 84,53.6 84,58 C84,62.4 82.4,67 78,67 L74,67" />
+
+    <!-- 蒸汽（两缕金色曲线） -->
+    <path
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="2.6"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M46,38 C43,34.5 49,32.5 46,29" />
+    <path
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="2.6"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M60,38 C63,34.5 57,32.5 60,29" />
+
+    <!-- 左侧花括号（表示 Java 语言） -->
+    <path
+        android:strokeColor="#3B82F6"
+        android:strokeWidth="3.4"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M30,40 C24,44 24,48 30,52 C24,56 24,62 30,68" />
+
+    <!-- 右侧花括号 -->
+    <path
+        android:strokeColor="#3B82F6"
+        android:strokeWidth="3.4"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M78,40 C84,44 84,48 78,52 C84,56 84,62 78,68" />
+</vector>

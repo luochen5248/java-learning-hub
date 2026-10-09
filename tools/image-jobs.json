@@ -1,0 +1,67 @@
+[
+  {
+    "name": "logo",
+    "aspect": "1:1",
+    "prompt": "flat vector app icon, circular badge on deep navy blue background (#0B1220), inside the badge a glowing cyan coffee cup silhouette merged with code brackets { } and a small golden spring leaf, tech blue-cyan and gold accent colors, clean geometric shapes, soft neon glow, modern minimal tech aesthetic, centered composition, no text, no letters, no words, no numbers"
+  },
+  {
+    "name": "hero",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), left side a glowing browser window with Vue-like green V logo and code editor, right side a glowing server rack and database cylinders with coffee cup symbol, connected by a luminous data bridge made of cyan light streams, gold accent particles, clean geometric shapes, soft gradient glow, modern tech aesthetic, wide composition, no text, no letters, no words"
+  },
+  {
+    "name": "m01-idea",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a sleek laptop screen showing an abstract IDE interface with colored sidebar panels, red-green-blue debugger buttons, floating windows and tool panels around it, cyan blue and gold glow accents, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m02-maven",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a central glowing warehouse building connected by luminous conveyor pipes to many small package boxes flowing into a project blueprint, cyan blue light streams and gold accent crates, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m03-java",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a large steaming golden-orange coffee cup with code brackets and type symbols floating above like constellation, gears and lambda symbols subtly glowing, cyan blue and gold accents, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m04-springboot",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a stylized green leaf spring launching like a rocket from a launch pad with glowing exhaust trails, surrounded by floating REST API nodes connected by cyan light lines, gold accent stars, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m05-mysql",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a friendly blue dolphin leaping over stacked glowing database cylinders, table grid structures floating around with cyan light lines connecting rows, gold accent data points, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m06-mybatis",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a glowing bridge made of pipes connecting an application cube on one side and database cylinders on the other side, data packets flowing through the bridge as cyan light dots, mapping arcs like light beams, gold accents, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m07-layered",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), an isometric three-story building with three translucent glowing floors stacked vertically, luminous elevators shafts connecting floors with data packets moving between them, top floor cyan, middle floor blue, bottom floor gold, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m08-package",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a sealed cardboard package box with glowing cyan seams being launched toward a cloud server tower by a small rocket, trajectory arc of golden light, floating gears and terminal window shapes, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m09-redis",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a large glowing red ruby gemstone floating above a stack of cache layers with lightning speed lines, small data keys orbiting around as glowing particles, cyan blue and gold accents, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "m10-docker",
+    "aspect": "16:9",
+    "prompt": "flat vector illustration, dark navy blue tech background (#0B1220), a friendly whale swimming on stylized waves carrying a stack of colorful shipping containers (blue cyan gold) on its back, glowing container grid pattern, small clouds and bubbles, clean geometric shapes, modern tech aesthetic, no text, no letters, no words"
+  },
+  {
+    "name": "android-icon-foreground",
+    "aspect": "1:1",
+    "prompt": "flat vector icon foreground on pure transparent-like solid deep navy background (#0B1220), centered glowing cyan coffee cup silhouette merged with code brackets { } and a small golden spring leaf, generous empty margins around the emblem, clean geometric shapes, soft neon glow, minimal tech style, no text, no letters, no words"
+  }
+]

@@ -1,0 +1,83 @@
+name: 构建安卓 APK
+
+# 触发方式：
+#   1) 手动：仓库页面 → Actions → 「构建安卓 APK」→ Run workflow
+#   2) 自动：推送代码到 main 或 master 分支
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# 只读权限即可，构建产物通过 artifact 下载
+permissions:
+  contents: read
+
+# 同一分支的重复构建只保留最新一次
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: 构建 Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # ---------- 第一步：构建 Web 站点 ----------
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: java-learning-app/package-lock.json
+
+      - name: 安装依赖并构建静态站点
+        working-directory: java-learning-app
+        run: |
+          npm ci
+          npm run build
+
+      # dist/ 里有 index.html、static/、assets/，整体平铺进安卓 assets
+      - name: 拷贝站点产物到安卓 assets
+        run: |
+          mkdir -p android-shell/app/src/main/assets
+          cp -r java-learning-app/dist/. android-shell/app/src/main/assets/
+          echo "---- assets 目录内容 ----"
+          ls -la android-shell/app/src/main/assets/
+          test -f android-shell/app/src/main/assets/index.html
+
+      # ---------- 第二步：构建安卓 APK ----------
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 API 34 平台与构建工具
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      # 本仓库不含 gradle-wrapper.jar，因此由 setup-gradle 提供 gradle 命令（含构建缓存）
+      - name: 配置 Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 构建 Debug APK
+        working-directory: android-shell
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: javahub-debug-apk
+          path: android-shell/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
