@@ -2,15 +2,15 @@
 <resources>
     <!--
       浅色主题（默认，values/）。深色值在 values-night/colors.xml。
-      三组底色/文字色与 web 端 css/app.css 的
-        [data-theme='light'] { --bg / --panel / --text }
+      三组底色/文字色与 web 端 css/app.css 的浅色主题
+        [data-theme='light'] 下的 bg / panel / text 变量
       保持一致，避免 WebView 加载前后出现色差。
     -->
     <color name="bg_root">#F7F9FD</color>
     <color name="bg_panel">#FFFFFF</color>
     <color name="text_primary">#0F1E36</color>
 
-    <!-- 点缀色三角（浅色版，对应 css 的 --blue / --cyan / --gold） -->
+    <!-- 点缀色三角（浅色版，对应 css 的 blue / cyan / gold 变量） -->
     <color name="brand_blue">#2563EB</color>
     <color name="brand_cyan">#0891B2</color>
     <color name="brand_gold">#D97706</color>

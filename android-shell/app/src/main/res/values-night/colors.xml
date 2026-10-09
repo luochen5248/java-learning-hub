@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      深色主题（values-night/）。值对应 web 端 css/app.css 的
-        :root { --bg / --panel / --text }
+      深色主题（values-night/）。值对应 web 端 css/app.css
+      根选择器 :root 下的 bg / panel / text 变量，
       以及 AntD darkAlgorithm 的种子色。
     -->
     <color name="bg_root">#0B1220</color>
     <color name="bg_panel">#111A2C</color>
     <color name="text_primary">#E2E8F0</color>
 
-    <!-- 点缀色三角（深色版，对应 css 的 --blue / --cyan / --gold） -->
+    <!-- 点缀色三角（深色版，对应 css 的 blue / cyan / gold 变量） -->
     <color name="brand_blue">#3B82F6</color>
     <color name="brand_cyan">#22D3EE</color>
     <color name="brand_gold">#F59E0B</color>
