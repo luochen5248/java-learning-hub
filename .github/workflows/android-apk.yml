@@ -56,13 +56,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 配置 Android SDK
-        uses: android-actions/setup-android@v3
-
+      # ubuntu runner 已预装 Android SDK，这里不使用第三方 action：
+      # android-actions/setup-android@v3 会尝试安装已被 Google 下架的 'tools' 包，必然以 exit code 1 失败
       - name: 安装 API 34 平台与构建工具
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "SDK_ROOT=$SDK_ROOT"
+          SDKMANAGER=$(ls -d "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          if [ -z "$SDKMANAGER" ]; then SDKMANAGER=$(command -v sdkmanager); fi
+          echo "使用 sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: 写入 local.properties 指定 SDK 路径
+        working-directory: android-shell
+        run: echo "sdk.dir=$SDK_ROOT" > local.properties
 
       # 本仓库不含 gradle-wrapper.jar，因此由 setup-gradle 提供 gradle 命令（含构建缓存）
       - name: 配置 Gradle 8.7
