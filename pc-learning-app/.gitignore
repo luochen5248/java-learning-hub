@@ -1,0 +1,7 @@
+node_modules/
+dist-pc/
+resources/jdk/
+.tmp-jdk/
+.tmp-verify/
+*.log
+.DS_Store

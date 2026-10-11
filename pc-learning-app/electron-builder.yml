@@ -1,0 +1,55 @@
+# electron-builder 打包配置
+# 产物：dist/pc/ 下 NSIS 安装程序 + 便携版 zip（不干扰手机版 dist/apk）
+appId: com.javahub.pc
+productName: Java学习中枢
+copyright: MIT Licensed
+
+directories:
+  output: ../dist/pc
+  buildResources: pc-assets
+
+# 本项目不配置自动更新发布渠道（父目录存在 .git 会被误判为可发布仓库）
+publish: null
+
+files:
+  - dist-pc/**/*
+  - electron/**/*
+  - package.json
+  # 渲染层已被 vite 全量打包进 dist-pc，主进程只依赖 Node 内置模块，
+  # node_modules（构建期工具链）不需要随应用分发
+  - '!node_modules/**'
+
+extraResources:
+  # 内置 JDK：npm run fetch-jdk 下载到 resources/jdk 后随包分发
+  - from: resources/jdk
+    to: jdk
+    filter:
+      - "**/*"
+
+asar: true
+compression: normal
+buildVersion: '1.0.0'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  icon: pc-assets/icon.png
+  artifactName: ${productName}-${version}-win64.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Java学习中枢
+  uninstallDisplayName: Java学习中枢
+  language: '2052' # 简体中文安装界面
+  artifactName: ${productName}-${version}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+

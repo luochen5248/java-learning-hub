@@ -1,0 +1,29 @@
+{
+  "name": "java-learning-pc",
+  "productName": "Java学习中枢",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "description": "面向前端工程师的 Java 学习 PC 版（Electron，内置 JDK，离线可练）",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron .",
+    "fetch-jdk": "node tools/fetch-jdk.mjs",
+    "verify-examples": "node tools/verify-examples.mjs",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "codemirror": "^5.65.18"
+  },
+  "devDependencies": {
+    "@types/codemirror": "^5.60.15",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}

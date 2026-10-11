@@ -1,0 +1,84 @@
+name: 构建 PC 版并发 Release
+
+# 触发方式：
+#   1) 自动：推送 v* 格式的 tag（如 v1.1.0）→ 打包并发布 GitHub Release
+#   2) 手动：仓库页面 → Actions → 「构建 PC 版」→ Run workflow（只产出 artifact，不发 Release）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# tag 触发时需要写权限创建 Release
+permissions:
+  contents: write
+
+# 同一引用的重复构建只保留最新一次
+concurrency:
+  group: pc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pc:
+    name: 打包 Windows 安装程序与便携版
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: pc-learning-app/package-lock.json
+
+      # .npmrc 里的 npmmirror 镜像面向国内网络，海外 runner 走官方源更快
+      - name: 清理本地镜像配置
+        working-directory: pc-learning-app
+        run: if (Test-Path .npmrc) { Remove-Item .npmrc }
+
+      - name: 安装依赖
+        working-directory: pc-learning-app
+        run: npm ci
+
+      # 内置 JDK 约 320MB，用 actions/cache 缓存避免每次重新下载
+      - name: 缓存内置 JDK 21
+        uses: actions/cache@v4
+        with:
+          path: pc-learning-app/resources/jdk
+          key: jdk21-win-x64-v1
+
+      - name: 下载内置 JDK（命中缓存则自动跳过）
+        working-directory: pc-learning-app
+        run: node tools/fetch-jdk.mjs
+
+      - name: 构建渲染层
+        working-directory: pc-learning-app
+        run: npm run build
+
+      # --publish never：产物由下一步统一发 Release，不让 electron-builder 自行发布
+      - name: 打包安装程序与便携版
+        working-directory: pc-learning-app
+        run: npx electron-builder --publish never
+
+      - name: 上传构建产物（artifact 备份）
+        uses: actions/upload-artifact@v4
+        with:
+          name: javahub-pc-win64
+          path: |
+            dist/pc/*-setup.exe
+            dist/pc/*-win64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      # 仅 tag 推送时发布 Release，附件为安装程序 + 便携版 zip
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/pc/*-setup.exe
+            dist/pc/*-win64.zip
+          generate_release_notes: true
