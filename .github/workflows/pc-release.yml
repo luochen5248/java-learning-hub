@@ -78,6 +78,24 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: PC 版 ${{ github.ref_name }}
+          body: |
+            ## 本次更新（${{ github.ref_name }}）
+
+            **PC 桌面版首次发布**（Windows）：
+
+            - 全新科幻深色 UI：课程学习、闪卡复习、随堂测验完整迁移（11 模块 60 课）
+            - 新增「在线练习」：左侧写代码、右侧看输出，CodeMirror 编辑器 + 44 个 runoob 精选示例
+            - **内置 JDK 21**，无需安装任何 Java 环境，每个示例点开就跑
+            - 新增第 11 模块《Java 实例精练（基础篇）》，课程代码可一键跳转练习页运行
+
+            ## 安装
+
+            1. 下载下方 `Java学习中枢-1.2.0-setup.exe` 双击安装（约 253 MB，含内置 JDK）
+               或下载 `-win64.zip` 便携版解压即用、免安装
+            2. 启动后即最大化，F11 切换全屏，Ctrl+1~5 快速切换页面
+
+            > 手机版 APK 在 v1.1.0 及更早版本，两端互不干扰，学习进度各自独立保存
           files: |
             dist/pc/*-setup.exe
             dist/pc/*-win64.zip
