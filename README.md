@@ -1,11 +1,12 @@
 # JavaHub · 面向前端工程师的 Java 后端入门
 
 [![构建安卓 APK](https://github.com/luochen5248/java-learning-hub/actions/workflows/android-apk.yml/badge.svg)](https://github.com/luochen5248/java-learning-hub/actions/workflows/android-apk.yml)
+[![构建 PC 版](https://github.com/luochen5248/java-learning-hub/actions/workflows/pc-release.yml/badge.svg)](https://github.com/luochen5248/java-learning-hub/actions/workflows/pc-release.yml)
 
-面向 **Vue3 + TypeScript** 工程师的 Java 后端学习应用。10 个模块、51 课，
+面向 **Vue3 + TypeScript** 工程师的 Java 后端学习应用。11 个模块、60 课，
 图文并茂 + 流程图讲解，配随堂测验、刷题、闪卡，每个模块都有一节「避坑清单」
-汇总真实项目里的高频翻车点。支持浅色 / 深色 / 跟随系统三态主题，
-可打包成安卓 App 离线使用。
+汇总真实项目里的高频翻车点。**PC 版（Windows）内置 JDK，写代码点运行直接出结果**；
+安卓 App 与 PC 双端离线可用，学习进度各自独立保存。
 
 ![JavaHub](java-learning-app/public/assets/img/hero.jpg)
 
@@ -25,9 +26,28 @@
 
 ---
 
-## 二、下载安装（安卓）
+## 二、下载安装
 
-去 [**Releases**](https://github.com/luochen5248/java-learning-hub/releases/latest) 下载最新的 `app-debug.apk`：
+### PC 版（Windows，推荐）
+
+去 [**Releases**](https://github.com/luochen5248/java-learning-hub/releases/latest) 下载 **v1.2.1** 版本的安装包：
+
+| 项目 | 说明 |
+|---|---|
+| 系统要求 | Windows 10 / 11（x64） |
+| 安装体积 | 约 253 MB（已内置 JDK 21，**无需安装任何 Java 环境**） |
+| 特色 | 「在线练习」左右分栏：左边写代码、右边出结果，44 个示例点开就跑 |
+| 内容 | 完全离线，安装后无需联网 |
+
+**两种形态任选**：
+- `JavaHub-1.2.1-setup.exe`：双击安装，简体中文安装界面，自动创建桌面与开始菜单快捷方式
+- `JavaHub-1.2.1-win64.zip`：便携版，解压即用、免安装
+
+启动即最大化，`F11` 切换全屏，`Ctrl+1~5` 快速切换页面。
+
+### 安卓版
+
+去 [**Releases**](https://github.com/luochen5248/java-learning-hub/releases/latest) 下载 v1.1.0 及更早版本的 `app-debug.apk`：
 
 | 项目 | 说明 |
 |---|---|
@@ -109,8 +129,10 @@ npm run dev      # 本地开发服务器
 
 ```
 .
-├── .github/workflows/android-apk.yml   # 云端构建 APK 的流水线
-├── java-learning-app/                  # Vue3 前端工程（课程内容 + 全部界面）
+├── .github/workflows/
+│   ├── android-apk.yml                 # 云端构建 APK 的流水线
+│   └── pc-release.yml                  # 推送 v* tag 自动打包 PC 版并发布 Release
+├── java-learning-app/                  # Vue3 前端工程（课程内容 + 全部界面，手机版）
 │   ├── src/
 │   │   ├── data/                       # 课程数据（m01~m10，纯数据不写逻辑）
 │   │   ├── views/                      # 9 个页面视图
@@ -119,6 +141,14 @@ npm run dev      # 本地开发服务器
 │   │   ├── lib/                        # 刷题题池、代码高亮、HTML 白名单清洗
 │   │   └── styles/app.css              # 全部样式（双主题 CSS 变量）
 │   └── public/assets/img/              # logo / hero / m01~m10 封面插画
+├── pc-learning-app/                    # PC 桌面版（Electron，全新 UI，与手机版互不干扰）
+│   ├── electron/                       # 主进程：窗口管理 + 内置 JDK 运行器（IPC）
+│   ├── src/
+│   │   ├── data/                       # 课程数据（m01~m11）+ runoob 44 例示例库
+│   │   ├── ui/                         # 首页 / 课程 / 练习 / 闪卡 / 设置
+│   │   └── lib/                        # 渲染器、进度存储、安全桥接封装
+│   ├── tools/                          # JDK 下载、示例批量实测、数据校验脚本
+│   └── electron-builder.yml            # NSIS 安装程序 + 便携版 zip 打包配置
 └── android-shell/                      # 安卓 WebView 壳工程（Kotlin）
     └── app/src/main/                   # 壳代码与资源（assets 由 CI 构建时注入）
 ```
@@ -149,15 +179,24 @@ npm run preview    # 本地预览构建产物
 
 ---
 
-## 八、打包成安卓 App
+## 八、打包发布
 
-### 方式一：云端一键构建（推荐，无需装 Android Studio）
+### PC 版：推送 tag 自动发布（推荐）
+
+```bash
+git tag v1.x.x
+git push origin v1.x.x     # 触发 pc-release 工作流：打包 → 发布 Release → 上传 exe/zip
+```
+
+内置 JDK 有 Actions 缓存，非首次构建约 5 分钟；也可在 Actions 页面手动 `Run workflow`（只产出 artifact 不发 Release）。
+
+### 安卓 APK：云端一键构建
 
 推送代码到 `main` 分支，或在仓库 **Actions** 页面手动点 `Run workflow`，
 流水线会自动完成「构建 Web 站点 → 注入 assets → 编译 APK」，
 跑完后在该次运行的 **Artifacts** 区域下载 `javahub-debug-apk`。
 
-### 方式二：本地构建
+### 安卓 APK：本地构建
 
 1. `cd java-learning-app && npm run build` 产出 `dist/`
 2. 把 `dist/` 里的全部内容**平铺**拷到 `android-shell/app/src/main/assets/`

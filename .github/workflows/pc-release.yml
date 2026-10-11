@@ -91,8 +91,8 @@ jobs:
 
             ## 安装
 
-            1. 下载下方 `Java学习中枢-1.2.0-setup.exe` 双击安装（约 253 MB，含内置 JDK）
-               或下载 `-win64.zip` 便携版解压即用、免安装
+            1. 下载下方 `JavaHub-${{ github.ref_name }}-setup.exe` 双击安装（约 253 MB，含内置 JDK）
+               或下载 `JavaHub-${{ github.ref_name }}-win64.zip` 便携版解压即用、免安装
             2. 启动后即最大化，F11 切换全屏，Ctrl+1~5 快速切换页面
 
             > 手机版 APK 在 v1.1.0 及更早版本，两端互不干扰，学习进度各自独立保存

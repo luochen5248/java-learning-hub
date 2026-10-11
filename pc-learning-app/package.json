@@ -2,7 +2,7 @@
   "name": "java-learning-pc",
   "productName": "Java学习中枢",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "面向前端工程师的 Java 学习 PC 版（Electron，内置 JDK，离线可练）",
   "main": "electron/main.cjs",
