@@ -27,6 +27,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      # tag 是 v1.2.1 这种格式，产物名不含 v：把去掉 v 的版本号存入环境变量供 Release 说明引用
+      - name: 解析版本号（去掉 tag 的 v 前缀）
+        run: Add-Content $env:GITHUB_ENV "PC_VERSION=$($env:GITHUB_REF_NAME -replace '^v','')"
+
       - name: 安装 Node 20
         uses: actions/setup-node@v4
         with:
@@ -91,8 +95,8 @@ jobs:
 
             ## 安装
 
-            1. 下载下方 `JavaHub-${{ github.ref_name }}-setup.exe` 双击安装（约 253 MB，含内置 JDK）
-               或下载 `JavaHub-${{ github.ref_name }}-win64.zip` 便携版解压即用、免安装
+            1. 下载下方 `JavaHub-${{ env.PC_VERSION }}-setup.exe` 双击安装（约 253 MB，含内置 JDK）
+               或下载 `JavaHub-${{ env.PC_VERSION }}-win64.zip` 便携版解压即用、免安装
             2. 启动后即最大化，F11 切换全屏，Ctrl+1~5 快速切换页面
 
             > 手机版 APK 在 v1.1.0 及更早版本，两端互不干扰，学习进度各自独立保存
